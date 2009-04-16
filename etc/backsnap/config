@@ -1,6 +1,13 @@
 # Backsnap Config File
 
 # ------------------------------------------------------------------------
+# Source Dirs:  This are the directories to backup.  File system boundaries
+# will not be crossed, so you may have to list multiple directories.  If so,
+# separate them with spaces, and enclose in double quotes like so: "a b c"
+#
+SOURCE_DIRS="/"
+
+# ------------------------------------------------------------------------
 # Backup Host:  This is the host where backups will be stored at.
 BACKUP_HOST=cinema
 
@@ -37,13 +44,6 @@ BACKUP_HOST_PATH=/backup/baal
 #ROOT_SNAPSHOT_DIR=/root/snapshots
 # NO LONGER USED, NFS SUCKS, now using ssh with authorized keys, and a
 # rotate script on cinema.
-
-# ------------------------------------------------------------------------
-# Source Dirs:  This are the directories to backup.  File system boundaries
-# will not be crossed, so you may have to list multiple directories.  If so,
-# separate them with spaces, and enclose in double quotes like so: "a b c"
-#
-SOURCE_DIRS="/"
 
 # ------------------------------------------------------------------------
 # Backup Rsync Password File:  This is a file with just one line with just

@@ -1,0 +1,60 @@
+Backsnap  (Backup snapshots)
+
+Features
+* Uses standard unix commands
+* If a file exists unchanged in multiple snapshots, it is only stored once,
+  and hardlinked between them
+
+First, decide what directories you need to backup.  Backsnap will not
+look beyond the file system that the directories specified reside on, so
+if you need to include directories from multiple filesystems, you will
+need to list each of them.  We will call these directories SOURCE_DIRS, and
+in the config file (/etc/backsnap/config) you can define it, something like
+this example:
+
+	SOURCE_DIRS="/home /media"
+
+Second, select a backup location for the backup data from this host.  This
+INSTALL file will describe the setup for this one example host; if you need
+to backup additional hosts, just do this configuration again for each of
+them.  We recommend backing up to a separate host.  Will call the backup host
+BACKUP_HOST,  and in the config file (/etc/backsnap/config) you can define
+it, something like this example:
+
+	BACKUP_HOST=backupmachine
+
+The specific path on that machine where you want backups to reside is defined
+in the next variable BACKUP_HOST_PATH.  Since this config file is for the one
+machine being backed up, you may have a subdirectory to separate them from
+other backups on the backupmachine, as we do in this example:
+
+	BACKUP_HOST_PATH=/backups/mydesktop
+
+Install the script "rotate" into $BACKUP_HOST:$BACKUP_HOST_PATH, as ".rotate",
+as shown in this example:
+
+	# scp rotate backupmachine:/backups/mydesktop/.rotate
+
+Now we need to enable two access methods to the backup destination: rsync
+daemon, and ssh.
+
+Enable ssh by setting up an identity for root on the machine to be backed
+up:
+
+	mydesktop# ssh-keygen
+
+Then copy the new public key to the authorized keys file for root on the
+backup machine.  If that file already exists, add the key, don't clobber it
+like this example does:
+
+	# scp /root/.ssh/id_rsa.pub backupmachine:/root/.ssh/authorized_keys
+
+Now you can test ssh this way
+
+	# ssh backupmachine /bin/ls /
+
+If that works without requiring a password, you're golden.
+
+To setup rsyncd, .....
+
+
