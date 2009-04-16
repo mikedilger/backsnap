@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -x
 # Backsnap
 #
 # Configure /etc/backsnap/config
@@ -74,7 +74,7 @@ fi
 
 # Run the rotate script on the remote host
 echo "Executing remote rotate script on backup host..."
-/usr/bin/ssh ${BACKUP_HOST}:${BACKUP_HOST_PATH}/.rotate
+/usr/bin/ssh ${BACKUP_HOST} ${BACKUP_HOST_PATH}/.rotate
 
 # Do the backups with rsync:
 for dr in $SOURCE_DIRS; do
@@ -86,7 +86,7 @@ for dr in $SOURCE_DIRS; do
   # --delete  delete first (maybe not even necessary since 0/ is empty)
   echo "Taking snapshot..."
   $RSYNC -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
-    --link-dest=../1 ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}${dr} 0/
+    --link-dest=../1 ${dr} ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}${dr}/0/
 done
 
 exit 0

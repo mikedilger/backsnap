@@ -4,7 +4,7 @@ cd /backup/baal
 
 # Unlink the oldest snapshot
 if [ -d 4 ] ; then
-  /bin/rm 4
+  /bin/rm -rf 4
 fi
 
 # Rotate all the other snapshots forward
