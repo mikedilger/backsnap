@@ -8,7 +8,6 @@
 #   0 */4 * * *    root   /sbin/backsnap
 #
 #-------------------------------------------------------------------------
-
 # Avoid accidental use of $PATH
 unset PATH
 
@@ -21,7 +20,9 @@ MV=/bin/mv;
 CP=/bin/cp;
 TOUCH=/bin/touch;
 RSYNC=/usr/bin/rsync;
+MKDIR=/bin/mkdir;
 
+#-------------------------------------------------------------------------
 # Verify we are running as root
 THISUID=`$ID -u`
 if [ $THISUID -ne 0 ] ; then
@@ -29,24 +30,13 @@ if [ $THISUID -ne 0 ] ; then
   exit 1
 fi
 
+#-------------------------------------------------------------------------
 # Include config file
 source /etc/backsnap/config
 
 # validate variables defined in config
 if [ z$BACKUP_HOST = z ] ; then
   echo "BACKUP_HOST not defined"
-  exit 1
-fi
-if [ z$BACKUP_HOST_PATH = z ] ; then
-  echo "BACKUP_HOST_PATH not defined"
-  exit 1
-fi
-if [ z$SNAPSHOT_DIR = z ] ; then
-  echo "SNAPSHOT_DIR not defined"
-  exit 1
-fi
-if [ ! -d $SNAPSHOT_DIR ] ; then
-  echo "Snapshot directory $SNAPSHOT_DIR not found."
   exit 1
 fi
 if [ z$ROOT_SNAPSHOT_DIR = z ] ; then
@@ -67,53 +57,45 @@ for dr in $SOURCE_DIRS; do
     exit 1
   fi
 done
-
-
-
-# NOT FINISHED:
-exit 2;
-
-
-
-PASSWORD_FILE=/usr/local/share/rsync.passwords
-
-if ((`$ID -u` != 0)); then { $ECHO "Sorry, must be root.  Exiting..."; exit 1; } fi
-
-HOST=$1
-PATH=$2
-
-if [ x$HOST = x ] ; then
-  $ECHO "Sorry, you need a hostname as the first parameter.  Exiting...";
-  exit 1;
+if [ z$BACKUP_RSYNC_PASSWD_FILE = z ] ; then
+  echo "BACKUP_RSYNC_PASSWD_FILE is not set"
+  exit 1
 fi
-if [ x$PATH = x ] ; then
-  $ECHO "Sorry, you need a path as the second parameter.  Exiting...";
-  exit 1;
+if [ ! -f $BACKUP_RSYNC_PASSWD_FILE ] ; then
+  echo "$BACKUP_RSYNC_PASSWD_FILE doesn't exist"
+  exit 1
 fi
-if [ ! -d /${SNAPSHOT_SHARE}/${HOST} ] ; then
-  $ECHO "Sorry, /${SNAPSHOT_SHARE}/${HOST} does not exist.  Exiting...";
-  exit 1;
+if [ ! -r $BACKUP_RSYNC_PASSWD_FILE ] ; then
+  echo "$BACKUP_RSYNC_PASSWD_FILE cannot be read"
+  exit 1
 fi
-cd /${SNAPSHOT_SHARE}/${HOST}
-
-if [ -d 4 ] ; then
-  $RM -rf 4
+if [ x$BACKUP_RSYNC_SHARE = x ] ; then
+  echo "BACKUP_RSYNC_SHARE is not set"
+  exit 1
 fi
 
-if [ -d 3 ] ; then
-  $MV 3 4
-fi
+#-------------------------------------------------------------------------
 
-if [ -d 2 ] ; then
-  $MV 2 3
-fi
+cd $ROOT_SNAPSHOT_DIR
 
-if [ -d 1 ] ; then
-  $MV 1 2
-fi
+# DELETE the oldest snapshot
+if [ -d 4 ] ; then $RM -rf 4; fi
+# ROTATE all the other snapshots backwards
+if [ -d 3 ] ; then $MV 3 4; fi
+if [ -d 2 ] ; then $MV 2 3; fi
+if [ -d 1 ] ; then $MV 1 2; fi
+if [ -d 0 ] ; then $MV 0 1; fi
+# Make a new empty 0/ directory
+$MKDIR 0
 
-if [ -d 0 ] ; then
-  $MV 0 1
-fi
-
-$RSYNC -avx --password-file=${PASSWORD_FILE} --delete --link-dest=../1 ${HOST}::${SNAPSHOT_SHARE}${PATH} 0/
+# Do the backups with rsync:
+for dr in $SOURCE_DIRS; do
+  # rsync the source directory into 0, using 1 as the link destination (that
+  # is, if the file is already in 1, hardlink instead of copying anew)
+  # -a        archive flags
+  # -v        verbose (not really needed if run from cron)
+  # -x        don't cross filesystem boundaries
+  # --delete  delete first (maybe not even necessary since 0/ is empty)
+  $RSYNC -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
+    --link-dest=../1 ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}${dr} 0/
+done
