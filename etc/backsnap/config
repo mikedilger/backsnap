@@ -1,0 +1,15 @@
+# Backsnap Config File
+
+# Backup Host:
+BACKUP_HOST=cinema
+# Backup Path:
+BACKUP_HOST_PATH=/backup/baal
+
+# Snapshot Dir (NFS mounted read-only for user recovery):
+SNAPSHOT_DIR=/snapshots
+
+# Root Snapshot Dir (NFS mounted read-write for script operation):
+ROOT_SNAPSHOT_DIR=/root/snapshots
+
+# Directories to backup (backsnap will not cross filesystems)
+SOURCE_DIRS="/"
