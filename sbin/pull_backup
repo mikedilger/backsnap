@@ -1,0 +1,63 @@
+#!/bin/sh
+#
+# Example Usage:
+# /usr/local/bin/pull_backup baal /
+#
+# Cron:
+#   0 */4 * * *    root   /usr/local/bin/pull_backup  baal  /
+
+# Avoid accidental use of $PATH
+unset PATH
+
+ID=/usr/bin/id;
+ECHO=/bin/echo;
+MOUNT=/bin/mount;
+RM=/bin/rm;
+MV=/bin/mv;
+CP=/bin/cp;
+TOUCH=/bin/touch;
+RSYNC=/usr/bin/rsync;
+
+SNAPSHOT_SHARE=backup;
+PASSWORD_FILE=/usr/local/share/rsync.passwords
+
+if ((`$ID -u` != 0)); then { $ECHO "Sorry, must be root.  Exiting..."; exit 1; } fi
+
+HOST=$1
+PATH=$2
+
+if [ x$HOST = x ] ; then
+  $ECHO "Sorry, you need a hostname as the first parameter.  Exiting...";
+  exit 1;
+fi
+if [ x$PATH = x ] ; then
+  $ECHO "Sorry, you need a path as the second parameter.  Exiting...";
+  exit 1;
+fi
+if [ ! -d /${SNAPSHOT_SHARE}/${HOST} ] ; then
+  $ECHO "Sorry, /${SNAPSHOT_SHARE}/${HOST} does not exist.  Exiting...";
+  exit 1;
+fi
+cd /${SNAPSHOT_SHARE}/${HOST}
+
+if [ -d 4 ] ; then
+  $RM -rf 4
+fi
+
+if [ -d 3 ] ; then
+  $MV 3 4
+fi
+
+if [ -d 2 ] ; then
+  $MV 2 3
+fi
+
+if [ -d 1 ] ; then
+  $MV 1 2
+fi
+
+if [ -d 0 ] ; then
+  $MV 0 1
+fi
+
+$RSYNC -avx --password-file=${PASSWORD_FILE} --delete --link-dest=../1 ${HOST}::${SNAPSHOT_SHARE}${PATH} 0/
