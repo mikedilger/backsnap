@@ -1,14 +1,18 @@
 #!/bin/sh
+# Backsnap
 #
-# Example Usage:
-# /usr/local/bin/pull_backup baal /
+# Configure /etc/backsnap/config
+# Then run /sbin/backsnap regularly
 #
-# Cron:
-#   0 */4 * * *    root   /usr/local/bin/pull_backup  baal  /
+# Example usage from cron:
+#   0 */4 * * *    root   /sbin/backsnap
+#
+#-------------------------------------------------------------------------
 
 # Avoid accidental use of $PATH
 unset PATH
 
+# Define commands
 ID=/usr/bin/id;
 ECHO=/bin/echo;
 MOUNT=/bin/mount;
@@ -18,7 +22,59 @@ CP=/bin/cp;
 TOUCH=/bin/touch;
 RSYNC=/usr/bin/rsync;
 
-SNAPSHOT_SHARE=backup;
+# Verify we are running as root
+THISUID=`$ID -u`
+if [ $THISUID -ne 0 ] ; then
+  echo "This script will only run as root."
+  exit 1
+fi
+
+# Include config file
+source /etc/backsnap/config
+
+# validate variables defined in config
+if [ z$BACKUP_HOST = z ] ; then
+  echo "BACKUP_HOST not defined"
+  exit 1
+fi
+if [ z$BACKUP_HOST_PATH = z ] ; then
+  echo "BACKUP_HOST_PATH not defined"
+  exit 1
+fi
+if [ z$SNAPSHOT_DIR = z ] ; then
+  echo "SNAPSHOT_DIR not defined"
+  exit 1
+fi
+if [ ! -d $SNAPSHOT_DIR ] ; then
+  echo "Snapshot directory $SNAPSHOT_DIR not found."
+  exit 1
+fi
+if [ z$ROOT_SNAPSHOT_DIR = z ] ; then
+  echo "ROOT_SNAPSHOT_DIR not defined"
+  exit 1
+fi
+if [ ! -d $ROOT_SNAPSHOT_DIR ] ; then
+  echo "Root Snapshot directory $ROOT_SNAPSHOT_DIR not found."
+  exit 1
+fi
+if [ 'z$SOURCE_DIRS' = 'z' ] ; then
+  echo "SOURCE_DIRS not defined"
+  exit 1
+fi
+for dr in $SOURCE_DIRS; do
+  if [ ! -d $dr ] ; then
+    echo "Source directory $dr not found"
+    exit 1
+  fi
+done
+
+
+
+# NOT FINISHED:
+exit 2;
+
+
+
 PASSWORD_FILE=/usr/local/share/rsync.passwords
 
 if ((`$ID -u` != 0)); then { $ECHO "Sorry, must be root.  Exiting..."; exit 1; } fi

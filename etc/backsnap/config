@@ -1,15 +1,62 @@
 # Backsnap Config File
 
-# Backup Host:
+# ------------------------------------------------------------------------
+# Backup Host:  This is the host where backups will be stored at.
 BACKUP_HOST=cinema
-# Backup Path:
+
+# ------------------------------------------------------------------------
+# Backup Path:  This directory must be NFS exported to the host(s) that
+# run backsnap, with rw permissions.  A line like this in /etc/exports
+# should work, so long as your NFS is setup for exporting:
+#
+#   /backup 192.168.97.0/25(rw,async,no_root_squash,no_subtree_check)
+#
 BACKUP_HOST_PATH=/backup/baal
 
-# Snapshot Dir (NFS mounted read-only for user recovery):
+# ------------------------------------------------------------------------
+# Snapshot Dir:  This is the directory on the host being backed up, where
+# users can recover their files.  It should be the mount point for a
+# read-only NFS mount of ${BACKUP_HOST}:${BACKUP_HOST_PATH}.  That mount
+# can be setup in /etc/fstab like this:
+#
+# cinema:/backup/baal    /snapshots    nfs  \
+#   proto=tcp,ro,noatime,rsize=8192,wsize=8192,nfsvers=3,soft,intr,nolock,tcp \
+#   0       0
+#
 SNAPSHOT_DIR=/snapshots
 
-# Root Snapshot Dir (NFS mounted read-write for script operation):
+# ------------------------------------------------------------------------
+# Root Snapshot Dir:  This is another mount of the same target as
+# Snapshot Dir, except that it is mounted read-write.  It should be hidden
+# from regular users (who shouldn't overwrite backups).  It is used by
+# backsnap to rotate the backups.  It can be mounted in /etc/fstab like
+# this:
+#
+# cinema:/backup/baal    /root/snapshots    nfs  \
+#   proto=tcp,rw,noatime,rsize=8192,wsize=8192,nfsvers=3,soft,intr,nolock,tcp \
+#   0       0
+#
 ROOT_SNAPSHOT_DIR=/root/snapshots
 
-# Directories to backup (backsnap will not cross filesystems)
+# ------------------------------------------------------------------------
+# Source Dirs:  This are the directories to backup.  File system boundaries
+# will not be crossed, so you may have to list multiple directories.  If so,
+# separate them with spaces, and enclose in double quotes like so: "a b c"
+#
 SOURCE_DIRS="/"
+
+# ------------------------------------------------------------------------
+# Backup Rsync Password File:  This is a file with just one line with just
+# one token specifying the password to access the rsyncd server on the
+# backup host.  This file should be read-protected, mod 0600, so only root
+# can read it.
+#
+# You should setup an rsyncd server on the backup host with this password.
+# You should setup an rsyncd target 
+BACKUP_RSYNC_PASSWD_FILE=/etc/backsnap/backup.rsync.passwd
+
+# ------------------------------------------------------------------------
+# Backup Rsync Target:  This is the rsyncd server section name for the
+# directory defined in BACKUP_HOST_PATH, so it can be accessed via the
+# rsyncd daemon, instead of NFS (rsyncd is more efficient than NFS).
+BACKUP_RSYNC_TARGET=backup_baal
