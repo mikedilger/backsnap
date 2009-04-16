@@ -39,12 +39,8 @@ if [ z$BACKUP_HOST = z ] ; then
   echo "BACKUP_HOST not defined"
   exit 1
 fi
-if [ z$ROOT_SNAPSHOT_DIR = z ] ; then
-  echo "ROOT_SNAPSHOT_DIR not defined"
-  exit 1
-fi
-if [ ! -d $ROOT_SNAPSHOT_DIR ] ; then
-  echo "Root Snapshot directory $ROOT_SNAPSHOT_DIR not found."
+if [ x$BACKUP_HOST_PATH = z ] ; then
+  echo "BACKUP_HOST_PATH not defined"
   exit 1
 fi
 if [ 'z$SOURCE_DIRS' = 'z' ] ; then
@@ -76,17 +72,9 @@ fi
 
 #-------------------------------------------------------------------------
 
-cd $ROOT_SNAPSHOT_DIR
-
-# DELETE the oldest snapshot
-if [ -d 4 ] ; then $RM -rf 4; fi
-# ROTATE all the other snapshots backwards
-if [ -d 3 ] ; then $MV 3 4; fi
-if [ -d 2 ] ; then $MV 2 3; fi
-if [ -d 1 ] ; then $MV 1 2; fi
-if [ -d 0 ] ; then $MV 0 1; fi
-# Make a new empty 0/ directory
-$MKDIR 0
+# Run the rotate script on the remote host
+echo "Executing remote rotate script on backup host..."
+/usr/bin/ssh ${BACKUP_HOST}:${BACKUP_HOST_PATH}/.rotate
 
 # Do the backups with rsync:
 for dr in $SOURCE_DIRS; do
@@ -96,6 +84,9 @@ for dr in $SOURCE_DIRS; do
   # -v        verbose (not really needed if run from cron)
   # -x        don't cross filesystem boundaries
   # --delete  delete first (maybe not even necessary since 0/ is empty)
+  echo "Taking snapshot..."
   $RSYNC -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
     --link-dest=../1 ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}${dr} 0/
 done
+
+exit 0

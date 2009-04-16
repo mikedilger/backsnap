@@ -11,8 +11,7 @@ BACKUP_HOST=cinema
 #
 #   /backup 192.168.97.0/25(rw,async,no_root_squash,no_subtree_check)
 #
-# the backsnap script doesn't need to know this path, but you will need
-# to specify it when you mount (see below)
+BACKUP_HOST_PATH=/backup/baal
 
 # ------------------------------------------------------------------------
 # Snapshot Dir:  This is the directory on the host being backed up, where
@@ -35,7 +34,9 @@ BACKUP_HOST=cinema
 #
 # cinema:/backup/baal    /root/snapshots    nfs  proto=tcp,rw,noatime,rsize=8192,wsize=8192,nfsvers=3,soft,intr,nolock,tcp   0       0
 #
-ROOT_SNAPSHOT_DIR=/root/snapshots
+#ROOT_SNAPSHOT_DIR=/root/snapshots
+# NO LONGER USED, NFS SUCKS, now using ssh with authorized keys, and a
+# rotate script on cinema.
 
 # ------------------------------------------------------------------------
 # Source Dirs:  This are the directories to backup.  File system boundaries
