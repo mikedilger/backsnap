@@ -8,6 +8,11 @@
 SOURCE_DIRS="/"
 
 # ------------------------------------------------------------------------
+# Exclude File: This is a file with excludes, one path per line, used by
+# rsync.  For details, see the --exclude-from feature of rsync.
+EXCLUDE_FILE="/etc/backsnap/excludes"
+
+# ------------------------------------------------------------------------
 # Backup Host:  This is the host where backups will be stored at.
 BACKUP_HOST=cinema
 
@@ -19,31 +24,6 @@ BACKUP_HOST=cinema
 #   /backup 192.168.97.0/25(rw,async,no_root_squash,no_subtree_check)
 #
 BACKUP_HOST_PATH=/backup/baal
-
-# ------------------------------------------------------------------------
-# Snapshot Dir:  This is the directory on the host being backed up, where
-# users can recover their files.  It should be the mount point for a
-# read-only NFS mount of ${BACKUP_HOST}:${BACKUP_HOST_PATH}.  It should be
-# specific to this host, such as /backup/baal, not just /backup.  That mount
-# can be setup in /etc/fstab like this:
-#
-# cinema:/backup/baal    /snapshots    nfs    proto=tcp,ro,noatime,rsize=8192,wsize=8192,nfsvers=3,soft,intr,nolock,tcp   0       0
-#
-# The backsnap script doesn't need this path, it uses ROOT_SNAPSHOT_DIR
-# instead, but you should mount it as described for user recovery purposes.
-
-# ------------------------------------------------------------------------
-# Root Snapshot Dir:  This is another mount of the same target as
-# Snapshot Dir, except that it is mounted read-write.  It should be hidden
-# from regular users (who shouldn't overwrite backups).  It is used by
-# backsnap to rotate the backups.  It can be mounted in /etc/fstab like
-# this:
-#
-# cinema:/backup/baal    /root/snapshots    nfs  proto=tcp,rw,noatime,rsize=8192,wsize=8192,nfsvers=3,soft,intr,nolock,tcp   0       0
-#
-#ROOT_SNAPSHOT_DIR=/root/snapshots
-# NO LONGER USED, NFS SUCKS, now using ssh with authorized keys, and a
-# rotate script on cinema.
 
 # ------------------------------------------------------------------------
 # Backup Rsync Password File:  This is a file with just one line with just

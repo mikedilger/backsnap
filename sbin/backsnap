@@ -23,18 +23,9 @@ if [ $THISUID -ne 0 ] ; then
 fi
 
 #-------------------------------------------------------------------------
-# Include config file
+# Include and validate the config file
 source /etc/backsnap/config
 
-# validate variables defined in config
-if [ z$BACKUP_HOST = z ] ; then
-  /bin/echo "BACKUP_HOST not defined"
-  exit 1
-fi
-if [ x$BACKUP_HOST_PATH = z ] ; then
-  /bin/echo "BACKUP_HOST_PATH not defined"
-  exit 1
-fi
 if [ 'z$SOURCE_DIRS' = 'z' ] ; then
   /bin/echo "SOURCE_DIRS not defined"
   exit 1
@@ -45,6 +36,22 @@ for dr in $SOURCE_DIRS; do
     exit 1
   fi
 done
+if [ z$EXCLUDE_FILE = z ] ; then
+  /bin/echo "EXCLUDE_FILE not defined"
+  exit 1
+fi
+if [ ! -r $EXCLUDE_FILE ] ; then
+  /bin/echo "Cannot read exclude file $EXCLUDE_FILE"
+  exit 1
+fi
+if [ z$BACKUP_HOST = z ] ; then
+  /bin/echo "BACKUP_HOST not defined"
+  exit 1
+fi
+if [ x$BACKUP_HOST_PATH = z ] ; then
+  /bin/echo "BACKUP_HOST_PATH not defined"
+  exit 1
+fi
 if [ z$BACKUP_RSYNC_PASSWD_FILE = z ] ; then
   /bin/echo "BACKUP_RSYNC_PASSWD_FILE is not set"
   exit 1
@@ -63,8 +70,7 @@ if [ x$BACKUP_RSYNC_SHARE = x ] ; then
 fi
 
 #-------------------------------------------------------------------------
-# Determine the rotation factor
-
+# Determine the rotation
 
 DOY=`/bin/date +%j`
 AMOD=`/usr/bin/expr $DOY % 2`     # Every odd 1-day
@@ -103,13 +109,24 @@ if [ x$TARGET = x ] ; then
   exit 1
 fi
 
+#-------------------------------------------------------------------------
 # Wipe out that target (DANGEROUS, BE CAREFUL EDITING THIS)
 /usr/bin/ssh ${BACKUP_HOST} /bin/rm -rf --one-file-system --preserve-root ${BACKUP_HOST_PATH}/${TARGET}/
+
+#-------------------------------------------------------------------------
+# Take the snapshot
 
 # Determine the newest backup at the remote (for link-dest)
 NEWEST=`/usr/bin/ssh ${BACKUP_HOST} /bin/ls -1t ${BACKUP_HOST_PATH} | /usr/bin/head -n 1`
 # Make a fresh empty directory for the new backup
 /usr/bin/ssh ${BACKUP_HOST} /bin/mkdir ${BACKUP_HOST_PATH}/${TARGET} || exit 1;
+
+# Set the RSYNC_RSH variable to be sure we are using SSH, and set some
+# parameters for that
+#    -c arcfour:          weak fast encryption
+#    -o Compression=no:   rsync already compresses, ssh doesn't need to
+#    -x:                  Turn off X tunnelling (shouldn't be on anyways)
+export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
 
 # Do the backups with rsync:
 for dr in $SOURCE_DIRS; do
@@ -119,11 +136,21 @@ for dr in $SOURCE_DIRS; do
   # -a        archive flags
   # -v        verbose (not really needed if run from cron)
   # -x        don't cross filesystem boundaries
-  # --delete  delete first (maybe not even necessary since 0/ is empty)
+  # -z        compress over the transport
+  # --password-file       password for ssh access
+  # --compress-level=1    compress, but not tightly
+  # --delete              delete first (may not matter if target empty)
+  # --exclude-from        skip these directories
+  # --delete-excluded     delete newly excluded directories on taget
+  # --numeric-ids         important if UIDs/GIDs are not in sync
+  # --link-dest           If exists here, hardlink instead of creating anew
   /bin/echo "Taking snapshot of ${dr}  ..."
-  /usr/bin/rsync -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
-    --link-dest=../${NEWEST} ${dr} \
-    ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/${TARGET}/${dr}/
+  /usr/bin/rsync -avxz --password-file=${BACKUP_RSYNC_PASSWD_FILE} \
+    --compress-level=1
+    --delete --exclude-from=${EXCLUDE_FILE} --delete-excluded \
+    --numeric-ids --link-dest=../${NEWEST} \
+    ${dr} \
+    root@${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/${TARGET}/${dr}/
   # Update modification date on the new directory, after it is filled.
   /usr/bin/ssh ${BACKUP_HOST} /usr/bin/touch ${BACKUP_HOST_PATH}/${TARGET}
 done
