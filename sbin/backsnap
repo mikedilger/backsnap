@@ -74,22 +74,67 @@ if [ x$BACKUP_RSYNC_SHARE = x ] ; then
 fi
 
 #-------------------------------------------------------------------------
+# Determine the rotation factor
 
-# Run the rotate script on the remote host
-echo "Executing remote rotate script on backup host..."
-/usr/bin/ssh ${BACKUP_HOST} ${BACKUP_HOST_PATH}/.rotate
+
+DOY=`date +%j`
+AMOD=`expr $DOY % 2`     # Every odd 1-day
+BMOD=`expr $DOY % 4`     # Every odd 2-day  (2, not 4, 6, not 8, ...)
+CMOD=`expr $DOY % 8`     # Every odd 4-day  (4, not 8, 12, not 16, ...)
+DMOD=`expr $DOY % 16`    # ...
+EMOD=`expr $DOY % 32`
+FMOD=`expr $DOY % 64`
+GMOD=`expr $DOY % 128`   # Every odd 64-day (64, not 128, ...)
+
+# Worst case backup period is (2^(n-2)+1) days
+# Best case backup period is (2^(n-1)) days
+# We go up to H (n=8), so we have backups dating from
+#   65 (worst case) to 128 (best case) days ago
+
+if [ $AMOD -ne 0 ] ; then TARGET='A'
+elif [ $BMOD -ne 0 ] ; then TARGET='B'
+elif [ $CMOD -ne 0 ] ; then TARGET='C'
+elif [ $DMOD -ne 0 ] ; then TARGET='D'
+elif [ $EMOD -ne 0 ] ; then TARGET='E'
+elif [ $FMOD -ne 0 ] ; then TARGET='F'
+elif [ $GMOD -ne 0 ] ; then TARGET='G'
+else TARGET='H';
+fi
+
+# SAFETY CHECK, BACKUP_HOST_PATH must be at least 3 characters long
+BHPC=`echo ${BACKUP_HOST_PATH} | wc -m`
+if [ $BHPC -lt 3 ] ; then
+  echo "BACKUP_HOST_PATH ${BACKUP_HOST_PATH} < 3 characters"
+  echo "Safety check stopping script"
+  exit 1
+fi
+if [ x$TARGET = x ] ; then
+  echo "TARGET did not get set."
+  echo "Safety check stopping script"
+  exit 1
+fi
+
+# Wipe out that target (DANGEROUS, BE CAREFUL EDITING THIS)
+/usr/bin/ssh ${BACKUP_HOST} /bin/rm -rf --one-file-system --preserve-root ${BACKUP_HOST_PATH}/${TARGET}/
+
+# Determine the newest backup at the remote (for link-dest)
+NEWEST=`/usr/bin/ssh ${BACKUP_HOST} /bin/ls -1t ${BACKUP_HOST_PATH} | head -n 1`
+# Make a fresh empty directory for the new backup
+/usr/bin/ssh ${BACKUP_HOST} mkdir ${BACKUP_HOST_PATH}/${TARGET} || exit 1;
 
 # Do the backups with rsync:
 for dr in $SOURCE_DIRS; do
-  # rsync the source directory into 0, using 1 as the link destination (that
-  # is, if the file is already in 1, hardlink instead of copying anew)
+  # rsync the source directory into ${TARGET}, using ${NEWEST} as the link
+  # destination (that is, if the file is already in ${NEWEST}, hardlink
+  # instead of copying anew)
   # -a        archive flags
   # -v        verbose (not really needed if run from cron)
   # -x        don't cross filesystem boundaries
   # --delete  delete first (maybe not even necessary since 0/ is empty)
-  echo "Taking snapshot..."
+  echo "Taking snapshot of ${dr}..."
   $RSYNC -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
-    --link-dest=../1 ${dr} ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/0/${dr}/
+    --link-dest=../${NEWEST} ${dr} \
+    ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/${TARGET}/${dr}/
 done
 
 exit 0
