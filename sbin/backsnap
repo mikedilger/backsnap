@@ -14,22 +14,11 @@
 # Avoid accidental use of $PATH
 unset PATH
 
-# Define commands
-ID=/usr/bin/id;
-ECHO=/bin/echo;
-MOUNT=/bin/mount;
-RM=/bin/rm;
-MV=/bin/mv;
-CP=/bin/cp;
-TOUCH=/bin/touch;
-RSYNC=/usr/bin/rsync;
-MKDIR=/bin/mkdir;
-
 #-------------------------------------------------------------------------
 # Verify we are running as root
-THISUID=`$ID -u`
+THISUID=`/usr/bin/id -u`
 if [ $THISUID -ne 0 ] ; then
-  echo "This script will only run as root."
+  /bin/echo "This script will only run as root."
   exit 1
 fi
 
@@ -39,37 +28,37 @@ source /etc/backsnap/config
 
 # validate variables defined in config
 if [ z$BACKUP_HOST = z ] ; then
-  echo "BACKUP_HOST not defined"
+  /bin/echo "BACKUP_HOST not defined"
   exit 1
 fi
 if [ x$BACKUP_HOST_PATH = z ] ; then
-  echo "BACKUP_HOST_PATH not defined"
+  /bin/echo "BACKUP_HOST_PATH not defined"
   exit 1
 fi
 if [ 'z$SOURCE_DIRS' = 'z' ] ; then
-  echo "SOURCE_DIRS not defined"
+  /bin/echo "SOURCE_DIRS not defined"
   exit 1
 fi
 for dr in $SOURCE_DIRS; do
   if [ ! -d $dr ] ; then
-    echo "Source directory $dr not found"
+    /bin/echo "Source directory $dr not found"
     exit 1
   fi
 done
 if [ z$BACKUP_RSYNC_PASSWD_FILE = z ] ; then
-  echo "BACKUP_RSYNC_PASSWD_FILE is not set"
+  /bin/echo "BACKUP_RSYNC_PASSWD_FILE is not set"
   exit 1
 fi
 if [ ! -f $BACKUP_RSYNC_PASSWD_FILE ] ; then
-  echo "$BACKUP_RSYNC_PASSWD_FILE doesn't exist"
+  /bin/echo "$BACKUP_RSYNC_PASSWD_FILE doesn't exist"
   exit 1
 fi
 if [ ! -r $BACKUP_RSYNC_PASSWD_FILE ] ; then
-  echo "$BACKUP_RSYNC_PASSWD_FILE cannot be read"
+  /bin/echo "$BACKUP_RSYNC_PASSWD_FILE cannot be read"
   exit 1
 fi
 if [ x$BACKUP_RSYNC_SHARE = x ] ; then
-  echo "BACKUP_RSYNC_SHARE is not set"
+  /bin/echo "BACKUP_RSYNC_SHARE is not set"
   exit 1
 fi
 
@@ -77,14 +66,14 @@ fi
 # Determine the rotation factor
 
 
-DOY=`date +%j`
-AMOD=`expr $DOY % 2`     # Every odd 1-day
-BMOD=`expr $DOY % 4`     # Every odd 2-day  (2, not 4, 6, not 8, ...)
-CMOD=`expr $DOY % 8`     # Every odd 4-day  (4, not 8, 12, not 16, ...)
-DMOD=`expr $DOY % 16`    # ...
-EMOD=`expr $DOY % 32`
-FMOD=`expr $DOY % 64`
-GMOD=`expr $DOY % 128`   # Every odd 64-day (64, not 128, ...)
+DOY=`/bin/date +%j`
+AMOD=`/usr/bin/expr $DOY % 2`     # Every odd 1-day
+BMOD=`/usr/bin/expr $DOY % 4`     # Every odd 2-day  (2, not 4, 6, not 8, ...)
+CMOD=`/usr/bin/expr $DOY % 8`     # Every odd 4-day  (4, not 8, 12, ...)
+DMOD=`/usr/bin/expr $DOY % 16`    # ...
+EMOD=`/usr/bin/expr $DOY % 32`
+FMOD=`/usr/bin/expr $DOY % 64`
+GMOD=`/usr/bin/expr $DOY % 128`   # Every odd 64-day (64, not 128, ...)
 
 # Worst case backup period is (2^(n-2)+1) days
 # Best case backup period is (2^(n-1)) days
@@ -102,15 +91,15 @@ else TARGET='H';
 fi
 
 # SAFETY CHECK, BACKUP_HOST_PATH must be at least 3 characters long
-BHPC=`echo ${BACKUP_HOST_PATH} | wc -m`
+BHPC=`/bin/echo ${BACKUP_HOST_PATH} | /usr/bin/wc -m`
 if [ $BHPC -lt 3 ] ; then
-  echo "BACKUP_HOST_PATH ${BACKUP_HOST_PATH} < 3 characters"
-  echo "Safety check stopping script"
+  /bin/echo "BACKUP_HOST_PATH ${BACKUP_HOST_PATH} < 3 characters"
+  /bin/echo "Safety check stopping script"
   exit 1
 fi
 if [ x$TARGET = x ] ; then
-  echo "TARGET did not get set."
-  echo "Safety check stopping script"
+  /bin/echo "TARGET did not get set."
+  /bin/echo "Safety check stopping script"
   exit 1
 fi
 
@@ -118,9 +107,9 @@ fi
 /usr/bin/ssh ${BACKUP_HOST} /bin/rm -rf --one-file-system --preserve-root ${BACKUP_HOST_PATH}/${TARGET}/
 
 # Determine the newest backup at the remote (for link-dest)
-NEWEST=`/usr/bin/ssh ${BACKUP_HOST} /bin/ls -1t ${BACKUP_HOST_PATH} | head -n 1`
+NEWEST=`/usr/bin/ssh ${BACKUP_HOST} /bin/ls -1t ${BACKUP_HOST_PATH} | /usr/bin/head -n 1`
 # Make a fresh empty directory for the new backup
-/usr/bin/ssh ${BACKUP_HOST} mkdir ${BACKUP_HOST_PATH}/${TARGET} || exit 1;
+/usr/bin/ssh ${BACKUP_HOST} /bin/mkdir ${BACKUP_HOST_PATH}/${TARGET} || exit 1;
 
 # Do the backups with rsync:
 for dr in $SOURCE_DIRS; do
@@ -131,10 +120,12 @@ for dr in $SOURCE_DIRS; do
   # -v        verbose (not really needed if run from cron)
   # -x        don't cross filesystem boundaries
   # --delete  delete first (maybe not even necessary since 0/ is empty)
-  echo "Taking snapshot of ${dr}..."
-  $RSYNC -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
+  /bin/echo "Taking snapshot of ${dr}  ..."
+  /usr/bin/rsync -avx --password-file=${BACKUP_RSYNC_PASSWD_FILE} --delete \
     --link-dest=../${NEWEST} ${dr} \
     ${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/${TARGET}/${dr}/
+  # Update modification date on the new directory, after it is filled.
+  /usr/bin/ssh ${BACKUP_HOST} /usr/bin/touch ${BACKUP_HOST_PATH}/${TARGET}
 done
 
 exit 0
