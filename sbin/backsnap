@@ -1,6 +1,9 @@
 #!/bin/sh -x
 # Backsnap
 #
+# Derived from discussions on this page:
+#   http://www.mikerubel.org/computers/rsync_snapshots/
+#
 # Configure /etc/backsnap/config
 # Then run /sbin/backsnap regularly
 #
