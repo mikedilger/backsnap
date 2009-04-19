@@ -85,6 +85,18 @@ if [ $REMOTE -gt 1 ] ; then
 fi
 
 #-------------------------------------------------------------------------
+# Include and validate the config file
+source /etc/backsnap/config
+
+if [ z$EXCLUDE_FILE = z ] ; then
+    EXCLUDE_FILE=/dev/null
+fi
+if [ ! -r $EXCLUDE_FILE ] ; then
+  /bin/echo "Cannot read exclude file $EXCLUDE_FILE"
+  exit 1
+fi
+
+#-------------------------------------------------------------------------
 # Setup generalized variables from each of the three cases:
 
 if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
@@ -114,18 +126,6 @@ else
   PERFOPTS=-W
 fi
 SRCDIR=`/usr/bin/dirname $SRCPATH`
-
-#-------------------------------------------------------------------------
-# Include and validate the config file
-source /etc/backsnap/config
-
-if [ z$EXCLUDE_FILE = z ] ; then
-    EXCLUDE_FILE=/dev/null
-fi
-if [ ! -r $EXCLUDE_FILE ] ; then
-  /bin/echo "Cannot read exclude file $EXCLUDE_FILE"
-  exit 1
-fi
 
 #-------------------------------------------------------------------------
 # Determine the rotation target
