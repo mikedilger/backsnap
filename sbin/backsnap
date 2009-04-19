@@ -73,14 +73,14 @@ if [ x$DST = x ] ; then
   /bin/echo "You must specify two parameters, <src> <dst>"
 fi
 
-# Verify exactly one is remote
+# Verify no more than one is remote
 REMOTE=0
 REMOTESRC=`/bin/echo $SRC | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTESRC`
 REMOTEDST=`/bin/echo $DST | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTEDST`
-if [ $REMOTE -ne 1 ] ; then
-  echo "Exactly one of <src> or <dst> must be local"
+if [ $REMOTE -gt 1 ] ; then
+  echo "At most one of <src> or <dst> may be local"
   exit 1
 fi
 
@@ -271,13 +271,21 @@ if [ $REMOTEDST -ne 0 ] ; then
   # Update modification date on the new directory, after it is filled.
   ${TESTING} /usr/bin/ssh ${DSTHOST} /usr/bin/touch ${DSTPATH}/${TARGET}
 
-else
+elif [ $REMOTESRC -ne 0 ] ; then
 
   ${TESTING} /usr/bin/rsync -axS \
     -e "/usr/bin/ssh -c arcfour -o Compression=no -x" \
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
     root@${SRCHOST}:${SRCPATH}  ${DST}/${TARGET}/${SRCPATH}
+  ${TESTING} /usr/bin/touch ${DST}/${TARGET}
+
+else
+
+  ${TESTING} /usr/bin/rsync -axS \
+    --exclude-from=${EXCLUDE_FILE} \
+    --numeric-ids ${LINKPARAM} -W \
+    ${SRC}  ${DST}/${TARGET}/${SRC}
   ${TESTING} /usr/bin/touch ${DST}/${TARGET}
 
 fi
