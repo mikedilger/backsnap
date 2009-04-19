@@ -17,29 +17,9 @@ EXCLUDE_FILE="/etc/backsnap/excludes"
 BACKUP_HOST=cinema
 
 # ------------------------------------------------------------------------
-# Backup Host Path:  This directory must be NFS exported to the host(s)
-# that run backsnap, with rw permissions.  A line like this in /etc/exports
-# should work, so long as your NFS is setup for exporting:
-#
-#   /backup 192.168.97.0/25(rw,async,no_root_squash,no_subtree_check)
+# Backup Host Path:
 #
 BACKUP_HOST_PATH=/backup/baal
-
-# ------------------------------------------------------------------------
-# Backup Rsync Password File:  This is a file with just one line with just
-# one token specifying the password to access the rsyncd server on the
-# backup host.  This file should be read-protected, mod 0600, so only root
-# can read it.
-#
-# You should setup an rsyncd server on the backup host with this password.
-# You should setup an rsyncd target 
-BACKUP_RSYNC_PASSWD_FILE=/etc/backsnap/rsync.passwd
-
-# ------------------------------------------------------------------------
-# Backup Rsync Share:  This is the rsyncd server section name for the
-# directory defined in BACKUP_HOST_PATH, so it can be accessed via the
-# rsyncd daemon, instead of NFS (rsyncd is more efficient than NFS).
-BACKUP_RSYNC_SHARE=backup_baal
 
 # ------------------------------------------------------------------------
 # Fast Net:  If you are backing up over a LAN, set this to true, and it
