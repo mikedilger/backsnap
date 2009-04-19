@@ -63,35 +63,59 @@ if [ $# -ne 2 ] ; then
   exit 1
 fi
 
-SRC=$1
-if [ x$SRC = x ] ; then
+INSRC=$1
+if [ x$INSRC = x ] ; then
   /bin/echo "You must specify two parameters, <src> <dst>"
   exit 1
 fi
-DST=$2
-if [ x$DST = x ] ; then
+INDST=$2
+if [ x$INDST = x ] ; then
   /bin/echo "You must specify two parameters, <src> <dst>"
 fi
 
 # Verify no more than one is remote
 REMOTE=0
-REMOTESRC=`/bin/echo $SRC | /bin/grep : | /usr/bin/wc -l`
+REMOTESRC=`/bin/echo $INSRC | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTESRC`
-REMOTEDST=`/bin/echo $DST | /bin/grep : | /usr/bin/wc -l`
+REMOTEDST=`/bin/echo $INDST | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTEDST`
 if [ $REMOTE -gt 1 ] ; then
   echo "At most one of <src> or <dst> may be local"
   exit 1
 fi
 
+#-------------------------------------------------------------------------
+# Setup generalized variables from each of the three cases:
+
 if [ $REMOTESRC -ne 0 ] ; then
-  SRCHOST=`/bin/echo $SRC | /usr/bin/awk -F: '{print $1}'`
-  SRCPATH=`/bin/echo $SRC | /usr/bin/awk -F: '{print $2}'`
+  SRCHOST=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $1}'`
+  SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
+  SRCACCESS="/usr/bin/ssh ${SRCHOST}"
+  DSTHOST=
+  DSTPATH=${INDST}
+  DSTACCESS=
+  if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
+  TRANSPORT="-e '/usr/bin/ssh -c arcfour -o Compression=no -x'"
+elif [ $REMOTEDST -ne 0 ] ; then
+  SRCHOST=
+  SRCPATH=${INSRC}
+  SRCACCESS=
+  DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
+  DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
+  DSTACCESS="/usr/bin/ssh ${DSTHOST}"
+  if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
+  TRANSPORT="-e '/usr/bin/ssh -c arcfour -o Compression=no -x'"
+else
+  SRCHOST=
+  SRCPATH=${INSRC}
+  SRCACCESS=
+  DSTHOST=
+  DSTPATH=${INDST}
+  DSTACCESS=
+  PERFOPTS=-W
+  TRANSPORT=
 fi
-if [ $REMOTEDST -ne 0 ] ; then
-  DSTHOST=`/bin/echo $DST | /usr/bin/awk -F: '{print $1}'`
-  DSTPATH=`/bin/echo $DST | /usr/bin/awk -F: '{print $2}'`
-fi
+SRCDIR=`/usr/bin/dirname $SRCPATH`
 
 #-------------------------------------------------------------------------
 # Include and validate the config file
@@ -105,28 +129,12 @@ if [ ! -r $EXCLUDE_FILE ] ; then
   exit 1
 fi
 
-PERFOPTS=
-if [ x$FASTNET = xtrue ] ; then
-  # -W tells rsync to skip block-level comparison, and transfer entire files.
-  # 
-  PERFOPTS=-W
-else
-  # -z        compress over the transport
-  PERFOPTS=-z
-fi
-
 #-------------------------------------------------------------------------
 # Determine the rotation target
 
-# Read the count
-if [ $REMOTEDST -ne 0 ] ; then
-  COUNT=`/usr/bin/ssh ${DSTHOST} /bin/cat ${DSTPATH}/.count 2>/dev/null`
-else 
-  COUNT=`/bin/cat ${DST}/.count 2>/dev/null`
-fi
-if [ x$COUNT = x ] ; then
-  COUNT=1
-fi
+COUNT=`${DSTACCESS} /bin/cat ${DSTPATH}/.count 2>/dev/null`
+if [ x$COUNT = x ] ; then COUNT=1; fi
+
 # safety:
 COUNTWORDS=`/bin/echo $COUNT | /usr/bin/wc -w`
 if [ $COUNTWORDS -ne 1 ] ; then
@@ -166,59 +174,36 @@ fi
 
 # Update the count
 COUNT=`/usr/bin/expr $COUNT + 1`
+
 if [ $REMOTEDST -ne 0 ] ; then
-  ${TESTING} /usr/bin/ssh ${DSTHOST} "/bin/echo $COUNT > ${DSTPATH}/.count"
+  ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
 else 
   if [ x$TESTING = x ] ; then
-    /bin/echo $COUNT > ${DST}/.count
+    /bin/echo $COUNT > ${DSTPATH}/.count
   fi
 fi
 
 #-------------------------------------------------------------------------
 # Delete the target
 
-if [ $REMOTEDST -ne 0 ] ; then
-  
-  # SAFETY CHECK, must be at least 3 characters long
-  SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
-  if [ $SAFETYCOUNT -lt 3 ] ; then
-    /bin/echo "Destination Path  < 3 characters"
-    /bin/echo "Safety check stopping script"
-    exit 1
-  fi
-
-  /bin/echo "Clearing destination ${DSTPATH}/${TARGET}/ ..."
-  # Wipe out that target (DANGEROUS, BE CAREFUL EDITING THIS)
-  ${TESTING} /usr/bin/ssh ${DSTHOST} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/
-
-else
-
-  # SAFETY CHECK, must be at least 3 characters long
-  SAFETYCOUNT=`/bin/echo ${DST} | /usr/bin/wc -m`
-  if [ $SAFETYCOUNT -lt 3 ] ; then
-    /bin/echo "Destination Path  < 3 characters"
-    /bin/echo "Safety check stopping script"
-    exit 1
-  fi
-
-  /bin/echo "Clearing destination ${DST}/${TARGET}/ ..."
-  # Wipe out that target (DANGEROUS, BE CAREFUL EDITING THIS)
-  ${TESTING} /bin/rm -rf --one-file-system --preserve-root ${DST}/${TARGET}/
-
+SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
+if [ $SAFETYCOUNT -lt 3 ] ; then
+  /bin/echo "Destination Path  < 3 characters"
+  /bin/echo "Safety check stopping script"
+  exit 1
 fi
+
+/bin/echo "Clearing destination ${DSTPATH}/${TARGET}/ ..."
+${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}
 
 #-------------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
 
 LINKPARAM=
-if [ $REMOTEDST -ne 0 ] ; then
-  NEWESTLIST=`/usr/bin/ssh ${DSTHOST} /bin/ls -1t ${DSTPATH}`
-else
-  NEWESTLIST=`/bin/ls -1t ${DST}`
-fi
+NEWESTLIST=`${DSTACCESS} /bin/ls -1t ${DSTPATH}`
 for TT in $NEWESTLIST ; do
   if [ x$TT != x$TARGET ] ; then
-    LINKPARAM="--link-dest=../$TT"
+    LINKPARAM="--link-dest=${DSTPATH}/$TT/${SRCDIR}"
     break;
   fi
 done
@@ -226,16 +211,8 @@ done
 #-------------------------------------------------------------------------
 # Make a fresh empty directory for the new backup
 
-if [ $REMOTEDST -ne 0 ] ; then
-  /bin/echo "Making empty destination ${DSTPATH}/${TARGET} ..."
-  ${TESTING} /usr/bin/ssh ${DSTHOST} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRC} || exit 2;
-elif [ $REMOTESRC -ne 0 ] ; then
-  /bin/echo "Making empty destination ${DST}/${TARGET} ..."
-  ${TESTING} /bin/mkdir -p ${DST}/${TARGET}/${SRCPATH} || exit 2;
-else
-  /bin/echo "Making empty destination ${DST}/${TARGET} ..."
-  ${TESTING} /bin/mkdir -p ${DST}/${TARGET}/${SRC} || exit 2;
-fi
+/bin/echo "Making empty destination ${DSTPATH}/${TARGET} ..."
+${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
 
 #-------------------------------------------------------------------------
 # Take the snapshot
@@ -262,35 +239,12 @@ fi
   #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
   # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
 
-/bin/echo "Taking snapshot of ${SRC}  ..."
+/bin/echo "Taking snapshot of ${INSRC}  ..."
 
-if [ $REMOTEDST -ne 0 ] ; then
-
-  ${TESTING} /usr/bin/rsync -axS \
-    -e "/usr/bin/ssh -c arcfour -o Compression=no -x" \
+${TESTING} /usr/bin/rsync -axS ${TRANSPORT} \
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
-    ${SRC}  root@${DSTHOST}:${DSTPATH}/${TARGET}/${SRC}
-  # Update modification date on the new directory, after it is filled.
-  ${TESTING} /usr/bin/ssh ${DSTHOST} /usr/bin/touch ${DSTPATH}/${TARGET}
-
-elif [ $REMOTESRC -ne 0 ] ; then
-
-  ${TESTING} /usr/bin/rsync -axS \
-    -e "/usr/bin/ssh -c arcfour -o Compression=no -x" \
-    --exclude-from=${EXCLUDE_FILE} \
-    --numeric-ids ${LINKPARAM} ${PERFOPTS} \
-    root@${SRCHOST}:${SRCPATH}  ${DST}/${TARGET}/${SRCPATH}
-  ${TESTING} /usr/bin/touch ${DST}/${TARGET}
-
-else
-
-  ${TESTING} /usr/bin/rsync -axS \
-    --exclude-from=${EXCLUDE_FILE} \
-    --numeric-ids ${LINKPARAM} -W \
-    ${SRC}  ${DST}/${TARGET}/${SRC}
-  ${TESTING} /usr/bin/touch ${DST}/${TARGET}
-
-fi
+    ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
+${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 
 exit 0
