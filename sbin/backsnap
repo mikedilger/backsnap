@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh
 # Backsnap:   Pushes or pulls a backup snapshot to/from a directory to backup
 #
 # Parameters:  # backsnap <source> <destination>
@@ -43,6 +43,10 @@
 # Avoid accidental use of $PATH
 unset PATH
 
+# Define TESTING as /bin/echo to see what the script would do, without
+# actually doing it
+# TESTING="/bin/echo"
+
 #-------------------------------------------------------------------------
 # Verify we are running as root
 THISUID=`/usr/bin/id -u`
@@ -81,12 +85,12 @@ if [ $REMOTE -gt 1 ] ; then
 fi
 
 if [ $REMOTESRC -ne 0 ] ; then
-  SRCHOST=`echo $SRC | awk -F: '{print $1}'`
-  SRCPATH=`echo $SRC | awk -F: '{print $2}'`
+  SRCHOST=`/bin/echo $SRC | /usr/bin/awk -F: '{print $1}'`
+  SRCPATH=`/bin/echo $SRC | /usr/bin/awk -F: '{print $2}'`
 fi
 if [ $REMOTEDST -ne 0 ] ; then
-  DSTHOST=`echo $DST | awk -F: '{print $1}'`
-  DSTPATH=`echo $DST | awk -F: '{print $2}'`
+  DSTHOST=`/bin/echo $DST | /usr/bin/awk -F: '{print $1}'`
+  DSTPATH=`/bin/echo $DST | /usr/bin/awk -F: '{print $2}'`
 fi
 
 #-------------------------------------------------------------------------
@@ -114,19 +118,29 @@ fi
 #-------------------------------------------------------------------------
 # Determine the rotation target
 
-DOY=`/bin/date +%j`
-AMOD=`/usr/bin/expr $DOY % 2`     # Every odd 1-day
-BMOD=`/usr/bin/expr $DOY % 4`     # Every odd 2-day  (2, not 4, 6, not 8, ...)
-CMOD=`/usr/bin/expr $DOY % 8`     # Every odd 4-day  (4, not 8, 12, ...)
-DMOD=`/usr/bin/expr $DOY % 16`    # ...
-EMOD=`/usr/bin/expr $DOY % 32`
-FMOD=`/usr/bin/expr $DOY % 64`
-GMOD=`/usr/bin/expr $DOY % 128`   # Every odd 64-day (64, not 128, ...)
+# Read the count
+if [ $REMOTEDST -ne 0 ] ; then
+  COUNT=`/usr/bin/ssh ${DSTHOST} /bin/cat ${DSTPATH}/.count 2>/dev/null`
+else 
+  COUNT=`/bin/cat ${DST}/.count 2>/dev/null`
+fi
+if [ x$COUNT = x ] ; then
+  COUNT=1
+fi
+# COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
 
-# Worst case backup period is (2^(n-2)+1) days
-# Best case backup period is (2^(n-1)) days
+AMOD=`/usr/bin/expr $COUNT % 2`     # Every odd try
+BMOD=`/usr/bin/expr $COUNT % 4`     # Every odd 2nd (2, not 4, 6, not 8, ...)
+CMOD=`/usr/bin/expr $COUNT % 8`     # Every odd 4th (4, not 8, 12, ...)
+DMOD=`/usr/bin/expr $COUNT % 16`    # ...
+EMOD=`/usr/bin/expr $COUNT % 32`
+FMOD=`/usr/bin/expr $COUNT % 64`
+GMOD=`/usr/bin/expr $COUNT % 128`   # Every odd 64th (64, not 128, ...)
+
+# Worst case backup period is (2^(n-2)+1) backups
+# Best case backup period is (2^(n-1)) backups
 # We go up to H (n=8), so we have backups dating from
-#   65 (worst case) to 128 (best case) days ago
+#   65 (worst case) to 128 (best case) backups ago
 
 if [ $AMOD -ne 0 ] ; then TARGET='A'
 elif [ $BMOD -ne 0 ] ; then TARGET='B'
@@ -144,6 +158,14 @@ if [ x$TARGET = x ] ; then
   exit 1
 fi
 
+# Update the count
+COUNT=`/usr/bin/expr $COUNT + 1`
+if [ $REMOTEDST -ne 0 ] ; then
+  ${TESTING} /usr/bin/ssh ${DSTHOST} "/bin/echo $COUNT > ${DSTPATH}/.count"
+else 
+  ${TESTING} /bin/echo $COUNT > ${DST}/.count
+fi
+
 #-------------------------------------------------------------------------
 # Delete the target
 
@@ -157,8 +179,9 @@ if [ $REMOTEDST -ne 0 ] ; then
     exit 1
   fi
 
+  /bin/echo "Clearing destination ${DSTPATH}/${TARGET}/ ..."
   # Wipe out that target (DANGEROUS, BE CAREFUL EDITING THIS)
-  /usr/bin/ssh ${DSTHOST} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/
+  ${TESTING} /usr/bin/ssh ${DSTHOST} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/
 
 else
 
@@ -170,27 +193,37 @@ else
     exit 1
   fi
 
+  /bin/echo "Clearing destination ${DST}/${TARGET}/ ..."
   # Wipe out that target (DANGEROUS, BE CAREFUL EDITING THIS)
-  /bin/rm -rf --one-file-system --preserve-root ${DST}/${TARGET}/
+  ${TESTING} /bin/rm -rf --one-file-system --preserve-root ${DST}/${TARGET}/
 
 fi
 
 #-------------------------------------------------------------------------
-# Determine the newest backup (for link-dest)
+# Determine the newest backup (for link-dest), newest that is not target.
 
+LINKPARAM=
 if [ $REMOTEDST -ne 0 ] ; then
-  NEWEST=`/usr/bin/ssh ${DSTHOST} /bin/ls -1t ${DSTPATH} | /usr/bin/head -n 1`
+  NEWESTLIST=`/usr/bin/ssh ${DSTHOST} /bin/ls -1t ${DSTPATH}`
 else
-  NEWEST=`/bin/ls -1t ${DST} | /usr/bin/head -n 1`
+  NEWESTLIST=`/bin/ls -1t ${DST}`
 fi
+for TT in $NEWESTLIST ; do
+  if [ x$TT != x$TARGET ] ; then
+    LINKPARAM="--link-dest=../$TT"
+    break;
+  fi
+done
 
 #-------------------------------------------------------------------------
 # Make a fresh empty directory for the new backup
 
 if [ $REMOTEDST -ne 0 ] ; then
-  /usr/bin/ssh ${DSTHOST} /bin/mkdir ${DSTPATH}/${TARGET} || exit 2;
+  /bin/echo "Making empty destination ${DSTPATH}/${TARGET} ..."
+  ${TESTING} /usr/bin/ssh ${DSTHOST} /bin/mkdir ${DSTPATH}/${TARGET} || exit 2;
 else
-  /bin/mkdir ${DST}/${TARGET} || exit 2;
+  /bin/echo "Making empty destination ${DST}/${TARGET} ..."
+  ${TESTING} /bin/mkdir ${DST}/${TARGET} || exit 2;
 fi
 
 #-------------------------------------------------------------------------
@@ -222,22 +255,22 @@ fi
 
 if [ $REMOTEDST -ne 0 ] ; then
 
-  /usr/bin/rsync -axS \
+  ${TESTING} /usr/bin/rsync -axS \
     -e "/usr/bin/ssh -c arcfour -o Compression=no -x" \
     --exclude-from=${EXCLUDE_FILE} \
-    --numeric-ids --link-dest=../${NEWEST} ${PERFOPTS} \
-    ${SRC}  root@${DSTHOST}:${DSTPATH}/${TARGET}/${SRC}/
+    --numeric-ids ${LINKPARAM} ${PERFOPTS} \
+    ${SRC}  root@${DSTHOST}:${DSTPATH}/${TARGET}/${SRC}
   # Update modification date on the new directory, after it is filled.
-  /usr/bin/ssh ${DSTHOST} /usr/bin/touch ${DSTPATH}/${TARGET}
+  ${TESTING} /usr/bin/ssh ${DSTHOST} /usr/bin/touch ${DSTPATH}/${TARGET}
 
 else
 
-  /usr/bin/rsync -axS \
+  ${TESTING} /usr/bin/rsync -axS \
     -e "/usr/bin/ssh -c arcfour -o Compression=no -x" \
     --exclude-from=${EXCLUDE_FILE} \
-    --numeric-ids --link-dest=../${NEWEST} ${PERFOPTS} \
-    root@${SRCHOST}:${SRCPATH}  ${DST}/${TARGET}/${SRCPATH}/
-  /usr/bin/touch ${DST}/${TARGET}
+    --numeric-ids ${LINKPARAM} ${PERFOPTS} \
+    root@${SRCHOST}:${SRCPATH}  ${DST}/${TARGET}/${SRCPATH}
+  ${TESTING} /usr/bin/touch ${DST}/${TARGET}
 
 fi
 
