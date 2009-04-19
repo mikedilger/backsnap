@@ -128,27 +128,36 @@ NEWEST=`/usr/bin/ssh ${BACKUP_HOST} /bin/ls -1t ${BACKUP_HOST_PATH} | /usr/bin/h
 #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
 export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
 
+PERFOPTS=
+if [ x$FASTNET = xtrue ] ; then
+  # -W tells rsync to skip block-level comparison, and transfer entire files.
+  # 
+  PERFOPTS=-W
+else
+  # -z        compress over the transport
+  PERFOPTS=-z
+fi
+
 # Do the backups with rsync:
 for dr in $SOURCE_DIRS; do
   # rsync the source directory into ${TARGET}, using ${NEWEST} as the link
   # destination (that is, if the file is already in ${NEWEST}, hardlink
   # instead of copying anew)
   # -a        archive flags
-  # -v        verbose (not really needed if run from cron)
   # -x        don't cross filesystem boundaries
-  # -z        compress over the transport
+  # -S                    handle sparse files as sparse files
   # --password-file       password for ssh access
-  # --compress-level=1    compress, but not tightly
-  # --delete              delete first (may not matter if target empty)
   # --exclude-from        skip these directories
-  # --delete-excluded     delete newly excluded directories on taget
   # --numeric-ids         important if UIDs/GIDs are not in sync
   # --link-dest           If exists here, hardlink instead of creating anew
+  #
+  # These are not used because we start into a fresh directory:
+  # --delete              delete first (may not matter if target empty)
+  # --delete-excluded     delete newly excluded directories on taget
   /bin/echo "Taking snapshot of ${dr}  ..."
-  /usr/bin/rsync -avxz --password-file=${BACKUP_RSYNC_PASSWD_FILE} \
-    --compress-level=1
-    --delete --exclude-from=${EXCLUDE_FILE} --delete-excluded \
-    --numeric-ids --link-dest=../${NEWEST} \
+  /usr/bin/rsync -axS --password-file=${BACKUP_RSYNC_PASSWD_FILE} \
+    --exclude-from=${EXCLUDE_FILE} \
+    --numeric-ids --link-dest=../${NEWEST} ${PERFOPTS}\
     ${dr} \
     root@${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/${TARGET}/${dr}/
   # Update modification date on the new directory, after it is filled.

@@ -14,11 +14,19 @@ FEATURES
 * The snapshots are live NFS mounted read-only, so recovery is simply a
      matter of rooting around in those directories and finding what you want.
 * Uses only standard unix commands
-
+* The backup server does NOT get root access on every machine it backs up,
+  because the process is driven from the machine being backed up (push, not
+  pull).
+  CAVEATS:  While the avoids the catastrophe of a backup-server compromise
+            compromizing the entire network, it does enable the much more
+            likely scenerio of your backup server being compromised if any
+            of your network is compromised.  It also makes it possible to
+            adversely schedule backups in collision for resources.   I think
+            I need to turn this around.
 
 FUTURE IDEAS
 
-* squashfs compression
+* squashfs compression... use this for a permanent offlining of backups.
 
 ------------------------------------------------------------------------------
 INSTALLATION
@@ -37,10 +45,18 @@ A backsnap server does not need any special backsnap software installed.
 But it DOES need rsyncd, sshd, and nfs services (and in the future,
 squashfs), and it needs each of these to be configured as described here.
 
-X) Create an empty directory to store backups.  Make sure there is enough
-   space.  For the default 8 backups spanning up to 128 days, without
-   squashfs, you may need 1.5x to 3x of the original space, but this of
-   course depends upon your usage.
+X) Create an empty directory to store backups.
+
+   X.a)  SPACE:  Make sure there is enough space.  For the default 8 backups
+         spanning up to 128 days, you may need 1.5x to 3x of the original
+         space, but this of course depends upon your usage.
+
+   X.b)  FILESYSTEM:  The delete takes a long time on most filesystems.  XFS
+         has fast deletes, and is recommended.  However reiserfs saves space
+         with small files, so that is also a fairly good choice.
+
+   X.c)  DISK:  Raid redundancy is not needed on the backup because backups
+         are already a redundant copy.
 
 X) Install sshd, and configure it to run at boot
 
@@ -132,6 +148,4 @@ If that works without requiring a password, you're golden.
 nfsmount....
 
 cronjob...
-
-
-
+  schedule them at different times or you will swamp the backup server.

@@ -40,3 +40,9 @@ BACKUP_RSYNC_PASSWD_FILE=/etc/backsnap/rsync.passwd
 # directory defined in BACKUP_HOST_PATH, so it can be accessed via the
 # rsyncd daemon, instead of NFS (rsyncd is more efficient than NFS).
 BACKUP_RSYNC_SHARE=backup_baal
+
+# ------------------------------------------------------------------------
+# Fast Net:  If you are backing up over a LAN, set this to true, and it
+# will optimize for that.  If you are backing up over a slow link, such
+# as across the Internet, set it to false
+FASTNET=true
