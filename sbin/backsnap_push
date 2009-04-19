@@ -1,5 +1,5 @@
 #!/bin/sh -x
-# Backsnap
+# Backsnap push:   Pushes a backup snapshot from this host to a backup server
 #
 # Derived from discussions on this page:
 #   http://www.mikerubel.org/computers/rsync_snapshots/
@@ -8,7 +8,7 @@
 # Then run /sbin/backsnap regularly
 #
 # Example usage from cron:
-#   0 */4 * * *    root   /sbin/backsnap
+#   0 */4 * * *    root   /sbin/backsnap_push
 #
 #-------------------------------------------------------------------------
 # Avoid accidental use of $PATH
@@ -24,7 +24,7 @@ fi
 
 #-------------------------------------------------------------------------
 # Include and validate the config file
-source /etc/backsnap/config
+source /etc/backsnap/config_push
 
 if [ 'z$SOURCE_DIRS' = 'z' ] ; then
   /bin/echo "SOURCE_DIRS not defined"
@@ -50,22 +50,6 @@ if [ z$BACKUP_HOST = z ] ; then
 fi
 if [ x$BACKUP_HOST_PATH = z ] ; then
   /bin/echo "BACKUP_HOST_PATH not defined"
-  exit 1
-fi
-if [ z$BACKUP_RSYNC_PASSWD_FILE = z ] ; then
-  /bin/echo "BACKUP_RSYNC_PASSWD_FILE is not set"
-  exit 1
-fi
-if [ ! -f $BACKUP_RSYNC_PASSWD_FILE ] ; then
-  /bin/echo "$BACKUP_RSYNC_PASSWD_FILE doesn't exist"
-  exit 1
-fi
-if [ ! -r $BACKUP_RSYNC_PASSWD_FILE ] ; then
-  /bin/echo "$BACKUP_RSYNC_PASSWD_FILE cannot be read"
-  exit 1
-fi
-if [ x$BACKUP_RSYNC_SHARE = x ] ; then
-  /bin/echo "BACKUP_RSYNC_SHARE is not set"
   exit 1
 fi
 
@@ -121,13 +105,6 @@ NEWEST=`/usr/bin/ssh ${BACKUP_HOST} /bin/ls -1t ${BACKUP_HOST_PATH} | /usr/bin/h
 # Make a fresh empty directory for the new backup
 /usr/bin/ssh ${BACKUP_HOST} /bin/mkdir ${BACKUP_HOST_PATH}/${TARGET} || exit 1;
 
-# Set the RSYNC_RSH variable to be sure we are using SSH, and set some
-# parameters for that
-#    -c arcfour:          weak fast encryption
-#    -o Compression=no:   rsync already compresses, ssh doesn't need to
-#    -x:                  Turn off X tunnelling (shouldn't be on anyways)
-export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
-
 PERFOPTS=
 if [ x$FASTNET = xtrue ] ; then
   # -W tells rsync to skip block-level comparison, and transfer entire files.
@@ -154,12 +131,20 @@ for dr in $SOURCE_DIRS; do
   # These are not used because we start into a fresh directory:
   # --delete              delete first (may not matter if target empty)
   # --delete-excluded     delete newly excluded directories on taget
+  #
+  # Set the RSYNC_RSH variable to be sure we are using SSH, and set some
+  # parameters for that
+  #    -c arcfour:          weak fast encryption
+  #    -o Compression=no:   rsync already compresses, ssh doesn't need to
+  #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
+  # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
+
   /bin/echo "Taking snapshot of ${dr}  ..."
-  /usr/bin/rsync -axS --password-file=${BACKUP_RSYNC_PASSWD_FILE} \
+  /usr/bin/rsync -axS \
+    -e "/usr/bin/ssh -c arcfour -o Compression=no -x" \
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids --link-dest=../${NEWEST} ${PERFOPTS}\
-    ${dr} \
-    root@${BACKUP_HOST}::${BACKUP_RSYNC_SHARE}/${TARGET}/${dr}/
+    ${dr}  root@${BACKUP_HOST}:${BACKUP_HOST_PATH}/${TARGET}/${dr}/
   # Update modification date on the new directory, after it is filled.
   /usr/bin/ssh ${BACKUP_HOST} /usr/bin/touch ${BACKUP_HOST_PATH}/${TARGET}
 done
