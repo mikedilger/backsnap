@@ -87,6 +87,7 @@ fi
 #-------------------------------------------------------------------------
 # Setup generalized variables from each of the three cases:
 
+if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
 if [ $REMOTESRC -ne 0 ] ; then
   SRCHOST=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $1}'`
   SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
@@ -94,8 +95,7 @@ if [ $REMOTESRC -ne 0 ] ; then
   DSTHOST=
   DSTPATH=${INDST}
   DSTACCESS=
-  if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
-  TRANSPORT="-e '/usr/bin/ssh -c arcfour -o Compression=no -x'"
+  export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
 elif [ $REMOTEDST -ne 0 ] ; then
   SRCHOST=
   SRCPATH=${INSRC}
@@ -103,8 +103,7 @@ elif [ $REMOTEDST -ne 0 ] ; then
   DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
   DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
   DSTACCESS="/usr/bin/ssh ${DSTHOST}"
-  if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
-  TRANSPORT="-e '/usr/bin/ssh -c arcfour -o Compression=no -x'"
+  export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
 else
   SRCHOST=
   SRCPATH=${INSRC}
@@ -113,7 +112,6 @@ else
   DSTPATH=${INDST}
   DSTACCESS=
   PERFOPTS=-W
-  TRANSPORT=
 fi
 SRCDIR=`/usr/bin/dirname $SRCPATH`
 
@@ -241,7 +239,7 @@ ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
 
 /bin/echo "Taking snapshot of ${INSRC}  ..."
 
-${TESTING} /usr/bin/rsync -axS ${TRANSPORT} \
+${TESTING} /usr/bin/rsync -axS \
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
     ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
