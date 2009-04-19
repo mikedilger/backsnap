@@ -127,6 +127,12 @@ fi
 if [ x$COUNT = x ] ; then
   COUNT=1
 fi
+# safety:
+COUNTWORDS=`/bin/echo $COUNT | /usr/bin/wc -w`
+if [ $COUNTWORDS -ne 1 ] ; then
+  /bin/echo ".count at destination does not contain a single number"
+  exit 1
+fi
 # COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
 
 AMOD=`/usr/bin/expr $COUNT % 2`     # Every odd try
@@ -163,7 +169,9 @@ COUNT=`/usr/bin/expr $COUNT + 1`
 if [ $REMOTEDST -ne 0 ] ; then
   ${TESTING} /usr/bin/ssh ${DSTHOST} "/bin/echo $COUNT > ${DSTPATH}/.count"
 else 
-  ${TESTING} /bin/echo $COUNT > ${DST}/.count
+  if [ x$TESTING = x ] ; then
+    /bin/echo $COUNT > ${DST}/.count
+  fi
 fi
 
 #-------------------------------------------------------------------------
