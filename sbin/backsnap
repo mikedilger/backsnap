@@ -228,10 +228,13 @@ done
 
 if [ $REMOTEDST -ne 0 ] ; then
   /bin/echo "Making empty destination ${DSTPATH}/${TARGET} ..."
-  ${TESTING} /usr/bin/ssh ${DSTHOST} /bin/mkdir ${DSTPATH}/${TARGET} || exit 2;
+  ${TESTING} /usr/bin/ssh ${DSTHOST} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRC} || exit 2;
+elif [ $REMOTESRC -ne 0 ] ; then
+  /bin/echo "Making empty destination ${DST}/${TARGET} ..."
+  ${TESTING} /bin/mkdir -p ${DST}/${TARGET}/${SRCPATH} || exit 2;
 else
   /bin/echo "Making empty destination ${DST}/${TARGET} ..."
-  ${TESTING} /bin/mkdir ${DST}/${TARGET} || exit 2;
+  ${TESTING} /bin/mkdir -p ${DST}/${TARGET}/${SRC} || exit 2;
 fi
 
 #-------------------------------------------------------------------------
