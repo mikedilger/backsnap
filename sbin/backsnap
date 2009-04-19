@@ -73,14 +73,14 @@ if [ x$DST = x ] ; then
   /bin/echo "You must specify two parameters, <src> <dst>"
 fi
 
-# Verify only at most one is remote
+# Verify exactly one is remote
 REMOTE=0
 REMOTESRC=`/bin/echo $SRC | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTESRC`
 REMOTEDST=`/bin/echo $DST | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTEDST`
-if [ $REMOTE -gt 1 ] ; then
-  echo "At least one of <src> or <dst> must be local"
+if [ $REMOTE -ne 1 ] ; then
+  echo "Exactly one of <src> or <dst> must be local"
   exit 1
 fi
 
