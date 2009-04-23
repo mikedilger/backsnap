@@ -170,17 +170,6 @@ if [ x$TARGET = x ] ; then
   exit 1
 fi
 
-# Update the count
-COUNT=`/usr/bin/expr $COUNT + 1`
-
-if [ $REMOTEDST -ne 0 ] ; then
-  ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
-else 
-  if [ x$TESTING = x ] ; then
-    /bin/echo $COUNT > ${DSTPATH}/.count
-  fi
-fi
-
 #-------------------------------------------------------------------------
 # Delete the target
 
@@ -244,5 +233,19 @@ ${TESTING} /usr/bin/rsync -axS \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
     ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
 ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
+
+# ----------------------------------------------------------------------
+# Update the count only after we are done (if it was only partial, the
+# count will be the same, so the next backup will just try again in the
+# same slot)
+COUNT=`/usr/bin/expr $COUNT + 1`
+
+if [ $REMOTEDST -ne 0 ] ; then
+  ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
+else 
+  if [ x$TESTING = x ] ; then
+    /bin/echo $COUNT > ${DSTPATH}/.count
+  fi
+fi
 
 exit 0
