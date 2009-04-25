@@ -1,7 +1,7 @@
 #!/bin/sh
 # Backsnap:   Pushes or pulls a backup snapshot to/from a directory to backup
 #
-# Parameters:  # backsnap <source> <destination>
+# Parameters:  # backsnap [--nocount] <source> <destination>
 #
 #   backsnap <directory1> <directory2>
 #          This backups up directory1 to directory2 on the same system
@@ -9,7 +9,8 @@
 #          This backs up directory1 to remote host:directory2 (push) via ssh
 #   backsnap <host>:<directory1> <directory2>
 #          This backs up remote host:directory1 to directory2 (pull) via ssh
-#
+#   --nocount : don't update the count
+
 # Configuration options are in /etc/backsnap/config
 #
 # backsnap must be run as root, and must have root access via ssh to the
@@ -57,6 +58,25 @@ fi
 
 #-------------------------------------------------------------------------
 # Validate the parameters
+
+# Defaults:
+NOCOUNT=0;
+
+while [ $# -gt 2 ] ; do
+  # We have an optional parameter
+  PARAM=$1
+  shift
+  case $PARAM in
+  --nocount)
+    NOCOUNT=1;
+    ;;
+  *)
+    /bin/echo "Parameter $PARAM is not recognized.  Syntax:"
+    /bin/echo "  backsnap [optional parameters] <src> <dst>"
+    exit 1
+    ;;
+  esac
+done
 
 if [ $# -ne 2 ] ; then
   /bin/echo "This script requires exactly 2 parameters, <src> <dst>"
@@ -238,15 +258,16 @@ ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 # Update the count only after we are done (if it was only partial, the
 # count will be the same, so the next backup will just try again in the
 # same slot)
-COUNT=`/usr/bin/expr $COUNT + 1`
 
-if [ $REMOTEDST -ne 0 ] ; then
-  ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
-else 
-  if [ x$TESTING = x ] ; then
-    /bin/echo $COUNT > ${DSTPATH}/.count
+if [ $NOCOUNT -ne 1 ] ; then
+  COUNT=`/usr/bin/expr $COUNT + 1`
+  if [ $REMOTEDST -ne 0 ] ; then
+    ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
+  else 
+    if [ x$TESTING = x ] ; then
+      /bin/echo $COUNT > ${DSTPATH}/.count
+    fi
   fi
 fi
 
 exit 0
-
