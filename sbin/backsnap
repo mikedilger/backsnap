@@ -180,8 +180,8 @@ if [ $SAFETYCOUNT -lt 3 ] ; then
   exit 1
 fi
 
-/bin/echo "Clearing destination ${DSTPATH}/${TARGET}/ ..."
-${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}
+/bin/echo "Clearing destination ${DSTPATH}/${TARGET}/${SRCDIR} ..."
+${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/${SRCDIR}
 
 #-------------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
