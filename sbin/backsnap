@@ -67,7 +67,7 @@ while [ $# -gt 2 ] ; do
   PARAM=$1
   shift
   case $PARAM in
-  --nocount)
+  "--nocount")
     NOCOUNT=1;
     ;;
   *)
@@ -200,8 +200,8 @@ if [ $SAFETYCOUNT -lt 3 ] ; then
   exit 1
 fi
 
-/bin/echo "Clearing destination ${DSTPATH}/${TARGET}/${SRCDIR} ..."
-${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/${SRCDIR}
+/bin/echo "Clearing destination ${DSTPATH}/${TARGET}/${SRCPATH} ..."
+${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/${SRCPATH}
 
 #-------------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
@@ -210,7 +210,7 @@ LINKPARAM=
 NEWESTLIST=`${DSTACCESS} /bin/ls -1t ${DSTPATH}`
 for TT in $NEWESTLIST ; do
   if [ x$TT != x$TARGET ] ; then
-    LINKPARAM="--link-dest=${DSTPATH}/$TT/${SRCDIR}"
+    LINKPARAM="--link-dest=${DSTPATH}/$TT/${SRCPATH}"
     break;
   fi
 done
@@ -218,7 +218,7 @@ done
 #-------------------------------------------------------------------------
 # Make a fresh empty directory for the new backup
 
-/bin/echo "Making empty destination ${DSTPATH}/${TARGET} ..."
+/bin/echo "Making destination ${DSTPATH}/${TARGET}/${SRCDIR} ..."
 ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
 
 #-------------------------------------------------------------------------
