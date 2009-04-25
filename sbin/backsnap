@@ -107,7 +107,7 @@ if [ $REMOTESRC -ne 0 ] ; then
   DSTHOST=
   DSTPATH=${INDST}
   DSTACCESS=
-  export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
+  export RSYNC_RSH="/usr/bin/ionice -c3 /usr/bin/ssh -c arcfour -o Compression=no -x"
 elif [ $REMOTEDST -ne 0 ] ; then
   SRCHOST=
   SRCPATH=${INSRC}
@@ -115,7 +115,7 @@ elif [ $REMOTEDST -ne 0 ] ; then
   DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
   DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
   DSTACCESS="/usr/bin/ssh ${DSTHOST}"
-  export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
+  export RSYNC_RSH="/usr/bin/ionice -c3 /usr/bin/ssh -c arcfour -o Compression=no -x"
 else
   SRCHOST=
   SRCPATH=${INSRC}
@@ -228,7 +228,7 @@ ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
 
 /bin/echo "Taking snapshot of ${INSRC}  ..."
 
-${TESTING} /usr/bin/rsync -axS \
+/usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -axS \
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
     ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
@@ -249,3 +249,4 @@ else
 fi
 
 exit 0
+
