@@ -252,6 +252,10 @@ ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
     ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
+if [ $? -ne 0 ] ; then
+  print "Bailing out."
+  exit 1
+fi
 ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 
 # ----------------------------------------------------------------------
