@@ -18,7 +18,7 @@
 #H# M File mtime has changed
 #H# 5 File md5sum has changed (assumed if Size is different)
 
-$Me="/root/bin/diff_backup.pl";
+$Me="/sbin/backsnap_diff";
 if ($ARGV[0] eq "-h" || $ARGV[0] eq "--help") {
   open (SELF, $Me);
   while (<SELF>) {
@@ -50,13 +50,13 @@ $Dir2=$ARGV[1];
 
 
 print "Building file list for $Dir1...\n";
-open (FINDDATA, "find $Dir1 -type f -print |");
+open (FINDDATA, "find $Dir1 -xdev -type f -print |");
 @Files1=<FINDDATA>;
 close (FINDDATA);
 chomp @Files1;
 
 print "Building file list for $Dir2...\n";
-open (FINDDATA, "find $Dir2 -type f -print |");
+open (FINDDATA, "find $Dir2 -xdev -type f -print |");
 @Files2=<FINDDATA>;
 close (FINDDATA);
 chomp @Files2;
