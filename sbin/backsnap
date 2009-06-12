@@ -191,6 +191,17 @@ if [ x$TARGET = x ] ; then
 fi
 
 #-------------------------------------------------------------------------
+# Validate Access
+
+/usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -lptgoDxSn \
+    --numeric-ids ${PERFOPTS} --dry-run --dirs \
+    ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
+if [ $? -ne 0 ] ; then
+  /bin/echo "Dry-run failed.  Bailing out."
+  exit 1
+fi
+
+#-------------------------------------------------------------------------
 # Delete the target
 
 SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
