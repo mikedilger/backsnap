@@ -196,10 +196,15 @@ fi
 /usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -lptgoDxSn \
     --numeric-ids ${PERFOPTS} --dry-run --dirs \
     ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
-if [ $? -ne 0 ] ; then
-  /bin/echo "Dry-run failed.  Bailing out."
-  exit 1
-fi
+exitval=$?
+# Errors which are acceptible for proceeding: 0,6,21,23,24,25
+case $exitval in
+    (0|6|21|23|24|25) ;;
+    *)
+        /bin/echo "Dry-run failed.  Bailing out."
+        exit 1
+        ;;
+esac
 
 #-------------------------------------------------------------------------
 # Delete the target
@@ -263,10 +268,16 @@ ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
     --exclude-from=${EXCLUDE_FILE} \
     --numeric-ids ${LINKPARAM} ${PERFOPTS} \
     ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
-if [ $? -ne 0 ] ; then
-  /bin/echo "Bailing out."
-  exit 1
-fi
+exitval=$?
+# Errors which are acceptible for proceeding: 0,6,21,23,24,25
+case $exitval in
+    (0|6|21|23|24|25) ;;
+    *)
+        /bin/echo "Bailing out."
+        exit 1
+        ;;
+esac
+
 ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 
 # ----------------------------------------------------------------------
