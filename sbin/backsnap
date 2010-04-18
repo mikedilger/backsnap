@@ -162,10 +162,10 @@ fi
 # Deal with possibly remote config and excludes files
 
 TMPDIR=`/usr/bin/mktemp -d`
-add_on_exit rm -rf --one-file-system --preserve-root $TMPDIR
+add_on_exit /bin/rm -rf --one-file-system --preserve-root $TMPDIR
 
 if [ $REMOTESRC -ne 0 ] ; then
-    SRCHOST=`/bin/echo ${INSRC} | /usr/bin/awk '{print $1}' | /usr/bin/awk -F: '{print $1}'`
+    SRCHOST=`/bin/echo ${INSRCLIST} | /usr/bin/awk '{print $1}' | /usr/bin/awk -F: '{print $1}'`
     ${TESTING} /usr/bin/ionice -c3 /usr/bin/scp $SRCHOST:/etc/backsnap/config $SRCHOST:/etc/backsnap/excludes $TMPDIR
     if [ $? -ne 0 ] ; then
         /bin/echo "Failed to find $SRCHOST:/etc/backsnap/config or $SRCHOST:/etc/backsnap/excludes"
