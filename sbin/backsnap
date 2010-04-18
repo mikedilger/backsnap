@@ -231,7 +231,7 @@ fi
 # Validate access for first SRC (before deleting target)
 
 # If multiple src, just use the first for validation:
-INSRC=`echo $INSRCLIST | awk '{ print $1; }'`
+INSRC=`echo $INSRCLIST | /usr/bin/awk '{ print $1; }'`
 
 if [ $REMOTESRC -ne 0 ] ; then
     SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
