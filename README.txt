@@ -4,25 +4,18 @@ Backsnap  (BACKup SNAPshots)
 FEATURES
 
 * Backups traverse the network to a backup server.
-* Snapshots are taken daily.
-* EIGHT full backups are kept, in a kind of exponential backoff (using the
-     Towers of Hanoi strategy).  You always have yesterday, and the oldest
+* Snapshots are taken as often as you run the program, and rotated.
+* EIGHT full snapshots are kept, in a kind of exponential backoff (using the
+     Towers of Hanoi strategy).  You always have the last, and the oldest
      one ranges from 65-128 days old.
 * Even though 8 snapshots are kept, the storage required is much less than
      8-fold of the original media, because hard links are used for files in
      common.
-* The snapshots are live NFS mounted read-only, so recovery is simply a
+* The snapshots can be NFS mounted read-only, so recovery is simply a
      matter of rooting around in those directories and finding what you want.
 * Uses only standard unix commands
-* The backup server does NOT get root access on every machine it backs up,
-  because the process is driven from the machine being backed up (push, not
-  pull).
-  CAVEATS:  While the avoids the catastrophe of a backup-server compromise
-            compromizing the entire network, it does enable the much more
-            likely scenerio of your backup server being compromised if any
-            of your network is compromised.  It also makes it possible to
-            adversely schedule backups in collision for resources.   I think
-            I need to turn this around.
+* The backup can be either push or pull; one machine requires access to the
+  other if backups are over the network.
 
 FUTURE IDEAS
 
@@ -31,13 +24,15 @@ FUTURE IDEAS
 ------------------------------------------------------------------------------
 INSTALLATION
 
-A backsnap installation traverses a network.  You can't just install backsnap
-on a system and be done.  You need to think about your layout, and make
-changes on multiple machines.  We will talk about servers and clients.  A
-server is a place where backups reside.  A client is machine that has data to
-be backed up, and that needs to access historical data from time to time.
+A backsnap installation typically traverses a network.  You can't just
+install backsnap on a system and be done.  You need to think about your
+layout, and make changes on multiple machines.  We will talk about servers
+and clients.  A server is a place where backups reside.  A client is machine
+that has data to be backed up, and that needs to access historical data from
+time to time.
 
-
+------------------------------------------------------------------------------
+BELOW THIS LINE IS SOMEWHAT OUTDATED, AND PRESUMES CLIENTS PUSH
 ------------------------------------------------------------------------------
 INSTALLATION:  SERVER
 
