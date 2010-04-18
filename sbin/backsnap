@@ -1,17 +1,22 @@
 #!/bin/sh
 # Backsnap:   Pushes or pulls a backup snapshot to/from a directory to backup
 #
-# Parameters:  # backsnap [--nocount] <source> <destination>
+# Usage:  backsnap <dest> <src> [<src> ...]
 #
-#   backsnap <directory1> <directory2>
-#          This backups up directory1 to directory2 on the same system
-#   backsnap <directory1> <host>:<directory2>
-#          This backs up directory1 to remote host:directory2 (push) via ssh
-#   backsnap <host>:<directory1> <directory2>
-#          This backs up remote host:directory1 to directory2 (pull) via ssh
-#   --nocount : don't update the count
-#   --noclear : don't clear destination first
-
+#     <dest>  - REQUIRED, you must specify a backup destination directory
+#     <src>   - REQUIRED, one or more source paths
+#
+#     Either <dest> or <src> (but not both) may be a remote path in the
+#     form <hostname>:<path>.   In these cases, ssh is used.
+#
+# NOTE ON NEW VERSION:
+# After backsnap 'rotates' previous backups, it will clear the destination.
+# Then it will backup each <src> into this destination.  Then it will update
+# the count.   If you run a subsequent backsnap command to backup more
+# data to this destination IT WILL CLEAR IT FIRST.   So make it all one
+# command.  The --nocount and --noclear options have been removed, and
+# backsnap will fail to run if it encounters an option it doesn't understand.
+#
 # Configuration options are in /etc/backsnap/config
 #
 # backsnap must be run as root, and must have root access via ssh to the
@@ -20,8 +25,6 @@
 #
 # Snapshots are rotated daily on a tower-of-hanoi schedule.  To see the
 #   backups in date order, use the -t option to ls.
-# This is designed to be run once daily.  If you run it more than once daily,
-#   The subsequent runs will simply replace the previous run that day.
 #
 # Example usage from cron:
 #   59 15 * * *    root   /sbin/backsnap pluto:/ /backups/pluto/
@@ -45,68 +48,88 @@
 # Avoid accidental use of $PATH
 unset PATH
 
-# Define TESTING as /bin/echo to see what the script would do, without
-# actually doing it
-# TESTING="/bin/echo"
-
 #-------------------------------------------------------------------------
 # Verify we are running as root
 THISUID=`/usr/bin/id -u`
 if [ $THISUID -ne 0 ] ; then
-  /bin/echo "This script will only run as root."
-  exit 1
+    /bin/echo "This script will only run as root."
+    exit 1
 fi
 
 #-------------------------------------------------------------------------
-# Validate the parameters
 
-# Defaults:
-NOCOUNT=0;
-NOCLEAR=0;
+function usage {
+    /bin/echo "Usage:  backsnap [options] --dest=<dst> <src> [<src>]"
+    /bin/echo "  --version    Print the version"
+    /bin/echo "  --fastnet    Don't use network compression"
+    /bin/echo "  --dry-run    Just print what it would do, don't actually"
+}
 
-while [ $# -gt 2 ] ; do
-  # We have an optional parameter
-  PARAM=$1
-  shift
-  case $PARAM in
-  "--nocount")
-    NOCOUNT=1;
-    ;;
-  "--noclear")
-    NOCLEAR=1;
-    ;;
-  *)
-    /bin/echo "Parameter $PARAM is not recognized.  Syntax:"
-    /bin/echo "  backsnap [optional parameters] <src> <dst>"
-    exit 1
-    ;;
-  esac
+#-------------------------------------------------------------------------
+# Parse/validate the parameters
+
+INDSTISSET=0
+INDST=
+INSRCLIST=
+for PARAM in $@; do
+
+    case $PARAM in
+        -*) true;
+            case $PARAM in
+                --version)
+                    /bin/echo "Version UNSPECIFIED"
+                    ;;
+                --fastnet)
+                    FASTNET=true
+                    ;;
+                --dry-run)
+                    TESTING="/bin/echo"
+                    ;;
+                -*)
+                    /bin/echo "Option $PARAM is not recognized.  Bailing out."
+                    usage
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            if [ $INDSTISSET -eq 1 ] ; then
+                INSRCLIST="$INSRCLIST $PARAM"
+            else
+                INDST=$PARAM
+                INDSTISSET=1
+            fi
+            ;;
+    esac
+    shift
+
 done
 
-if [ $# -ne 2 ] ; then
-  /bin/echo "This script requires exactly 2 parameters, <src> <dst>"
-  exit 1
+if [ "x$INSRCLIST" = x ] ; then
+    /bin/echo "You must specify <dest> and <src>"
+    usage
+    exit 1
+fi
+if [ "x$INDST" = x ] ; then
+    /bin/echo "You must specify <dest> and <src>"
+    usage
 fi
 
-INSRC=$1
-if [ x$INSRC = x ] ; then
-  /bin/echo "You must specify two parameters, <src> <dst>"
-  exit 1
-fi
-INDST=$2
-if [ x$INDST = x ] ; then
-  /bin/echo "You must specify two parameters, <src> <dst>"
-fi
+# Debug
+#/bin/echo "SOURCE      = $INSRCLIST"
+#/bin/echo "DESTINATION = $INDST"
+#exit 1
 
 # Verify no more than one is remote
 REMOTE=0
-REMOTESRC=`/bin/echo $INSRC | /bin/grep : | /usr/bin/wc -l`
+# note: multiple INSRCLIST is still just 1 line, so this is ok:
+REMOTESRC=`/bin/echo $INSRCLIST | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTESRC`
 REMOTEDST=`/bin/echo $INDST | /bin/grep : | /usr/bin/wc -l`
 REMOTE=`/usr/bin/expr $REMOTE + $REMOTEDST`
 if [ $REMOTE -gt 1 ] ; then
-  echo "At most one of <src> or <dst> may be local"
-  exit 1
+    echo "At most one of <src> or <dst> may be local"
+    exit 1
 fi
 
 #-------------------------------------------------------------------------
@@ -117,42 +140,40 @@ if [ z$EXCLUDE_FILE = z ] ; then
     EXCLUDE_FILE=/dev/null
 fi
 if [ ! -r $EXCLUDE_FILE ] ; then
-  /bin/echo "Cannot read exclude file $EXCLUDE_FILE"
-  exit 1
+    /bin/echo "Cannot read exclude file $EXCLUDE_FILE"
+    exit 1
 fi
 
 #-------------------------------------------------------------------------
-# Setup generalized variables from each of the three cases:
+# Setup a few general parameters
 
 if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
-if [ $REMOTESRC -ne 0 ] ; then
-  SRCHOST=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $1}'`
-  SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
-  SRCACCESS="/usr/bin/ssh ${SRCHOST}"
-  DSTHOST=
-  DSTPATH=${INDST}
-  DSTACCESS=
-  export RSYNC_RSH="/usr/bin/ionice -c3 /usr/bin/ssh -c arcfour -o Compression=no -x"
-elif [ $REMOTEDST -ne 0 ] ; then
-  SRCHOST=
-  SRCPATH=${INSRC}
-  SRCACCESS=
-  DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
-  DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
-  DSTACCESS="/usr/bin/ssh ${DSTHOST}"
-  export RSYNC_RSH="/usr/bin/ionice -c3 /usr/bin/ssh -c arcfour -o Compression=no -x"
+if [ $REMOTE -eq 0 ] ; then
+    # Not remote, no compressionk
+    PERFOPTS=-W;
+    export RSYNC_RSH=""
 else
-  SRCHOST=
-  SRCPATH=${INSRC}
-  SRCACCESS=
-  DSTHOST=
-  DSTPATH=${INDST}
-  DSTACCESS=
-  PERFOPTS=-W
+    # Set the RSYNC_RSH variable to be sure we are using SSH, and set some
+    # parameters for that
+    #    -c arcfour:          weak fast encryption
+    #    -o Compression=no:   rsync already compresses, ssh doesn't need to
+    #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
+    # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
+    export RSYNC_RSH="/usr/bin/ionice -c3 /usr/bin/ssh -c arcfour -o Compression=no -x"
 fi
-SRCDIR=`/usr/bin/dirname $SRCPATH`
 
-#-------------------------------------------------------------------------
+# Parse INDST
+if [ $REMOTEDST -ne 0 ] ; then
+    DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
+    DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
+    DSTACCESS="/usr/bin/ssh ${DSTHOST}"
+else
+    DSTHOST=
+    DSTPATH=${INDST}
+    DSTACCESS=
+fi
+
+#---------------------------------------------------------------------
 # Determine the rotation target
 
 COUNT=`${DSTACCESS} /bin/cat ${DSTPATH}/.count 2>/dev/null`
@@ -161,8 +182,8 @@ if [ x$COUNT = x ] ; then COUNT=1; fi
 # safety:
 COUNTWORDS=`/bin/echo $COUNT | /usr/bin/wc -w`
 if [ $COUNTWORDS -ne 1 ] ; then
-  /bin/echo ".count at destination does not contain a single number"
-  exit 1
+    /bin/echo ".count at destination does not contain a single number"
+    exit 1
 fi
 # COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
 
@@ -190,13 +211,23 @@ else TARGET='H';
 fi
 
 if [ x$TARGET = x ] ; then
-  /bin/echo "TARGET did not get set."
-  /bin/echo "Safety check stopping script"
-  exit 1
+    /bin/echo "TARGET did not get set."
+    /bin/echo "Safety check stopping script"
+    exit 1
 fi
 
-#-------------------------------------------------------------------------
-# Validate Access
+#---------------------------------------------------------------------
+# Validate access for first SRC (before deleting target)
+
+# If multiple src, just use the first for validation:
+INSRC=`echo $INSRCLIST | awk '{ print $1; }'`
+
+if [ $REMOTESRC -ne 0 ] ; then
+    SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
+else
+    SRCPATH=${INSRC}
+fi
+SRCDIR=`/usr/bin/dirname $SRCPATH`
 
 /usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -lptgoDxSn \
     --numeric-ids ${PERFOPTS} --dry-run --dirs \
@@ -211,96 +242,110 @@ case $exitval in
         ;;
 esac
 
-#-------------------------------------------------------------------------
-# Delete the target
+# Unset these validation variables
+SRCPATH=
+SRCDIR=
 
-if [ $NOCLEAR -ne 1 ] ; then
-  SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
-  if [ $SAFETYCOUNT -lt 3 ] ; then
+#---------------------------------------------------------------------
+# Delete target
+
+SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
+if [ $SAFETYCOUNT -lt 3 ] ; then
     /bin/echo "Destination Path  < 3 characters"
     /bin/echo "Safety check stopping script"
     exit 1
- fi
-
-  /bin/echo "Clearing destination ${DSTPATH}/${TARGET}/${SRCPATH} ..."
-  ${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/${SRCPATH}
 fi
 
-#-------------------------------------------------------------------------
+/bin/echo "Clearing destination ${DSTPATH}/${TARGET} ..."
+${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}
+fi
+
+#---------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
 
-LINKPARAM=
+LINKTARG=
 NEWESTLIST=`${DSTACCESS} /bin/ls -1t ${DSTPATH}`
 for TT in $NEWESTLIST ; do
-  if [ x$TT != x$TARGET ] ; then
-    LINKPARAM="--link-dest=${DSTPATH}/$TT/${SRCPATH}"
-    break;
-  fi
+    if [ x$TT != x$TARGET ] ; then
+        LINKTARG="${DSTPATH}/$TT"
+        break;
+    fi
 done
 
 #-------------------------------------------------------------------------
-# Make a fresh empty directory for the new backup
+# Loop for each src specified
+for INSRC in $INSRCLIST; do
 
-/bin/echo "Making destination ${DSTPATH}/${TARGET}/${SRCDIR} ..."
-${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
+    # Parse INSRC
+    if [ $REMOTESRC -ne 0 ] ; then
+        SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
+    else
+        SRCPATH=${INSRC}
+    fi
+    SRCDIR=`/usr/bin/dirname $SRCPATH`
 
-#-------------------------------------------------------------------------
-# Take the snapshot
+    #---------------------------------------------------------------------
+    # If dest directory exists, clear it
+    /bin/echo "Clearing destination ${DSTPATH}/${TARGET}/${SRCDIR} ..."
+    ${TESTING} ${DSTACCESS} /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}/${SRCDIR}
+    
+    #---------------------------------------------------------------------
+    # Make a directory for the new backup
+    /bin/echo "Making destination ${DSTPATH}/${TARGET}/${SRCDIR} ..."
+    ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}/${SRCDIR} || exit 2;
 
-  # rsync the source directory into ${TARGET}, using ${NEWEST} as the link
-  # destination (that is, if the file is already in ${NEWEST}, hardlink
-  # instead of copying anew)
-  # -a        archive flags
-  # -x        don't cross filesystem boundaries
-  # -S                    handle sparse files as sparse files
-  # --password-file       password for ssh access
-  # --exclude-from        skip these directories
-  # --numeric-ids         important if UIDs/GIDs are not in sync
-  # --link-dest           If exists here, hardlink instead of creating anew
-  #
-  # These are not used because we start into a fresh directory:
-  # --delete              delete first (may not matter if target empty)
-  # --delete-excluded     delete newly excluded directories on taget
-  #
-  # Set the RSYNC_RSH variable to be sure we are using SSH, and set some
-  # parameters for that
-  #    -c arcfour:          weak fast encryption
-  #    -o Compression=no:   rsync already compresses, ssh doesn't need to
-  #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
-  # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
+    #---------------------------------------------------------------------
+    # Take the snapshot
 
-/bin/echo "Taking snapshot of ${INSRC}  ..."
+    # rsync the source directory into ${TARGET}, using ${NEWEST} as the link
+    # destination (that is, if the file is already in ${NEWEST}, hardlink
+    # instead of copying anew)
+    # -a        archive flags
+    # -x        don't cross filesystem boundaries
+    # -S                    handle sparse files as sparse files
+    # --password-file       password for ssh access
+    # --exclude-from        skip these directories
+    # --numeric-ids         important if UIDs/GIDs are not in sync
+    # --link-dest           If exists here, hardlink instead of creating anew
+    #
+    # These are not used because we start into a fresh directory:
+    # --delete              delete first (may not matter if target empty)
+    # --delete-excluded     delete newly excluded directories on taget
+    #
 
-/usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -axS \
-    --exclude-from=${EXCLUDE_FILE} \
-    --numeric-ids ${LINKPARAM} ${PERFOPTS} \
-    ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
-exitval=$?
-# Errors which are acceptible for proceeding: 0,6,21,23,24,25
-case $exitval in
-    (0|6|21|23|24|25) ;;
-    *)
-        /bin/echo "Bailing out."
-        exit 1
-        ;;
-esac
+    /bin/echo "Taking snapshot of ${INSRC}  ..."
 
+    /usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -axS \
+        --exclude-from=${EXCLUDE_FILE} \
+        --numeric-ids --link-dest=${LINKTARG}/${SRCPATH} ${PERFOPTS} \
+        ${INSRC} ${INDST}/${TARGET}/${SRCDIR}
+    exitval=$?
+    # Errors which are acceptible for proceeding: 0,6,21,23,24,25
+    case $exitval in
+        (0|6|21|23|24|25) ;;
+        *)
+            /bin/echo "Bailing out."
+            exit 1
+            ;;
+    esac
+
+done
+
+# Mark target as new, after we are finished with it
 ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 
-# ----------------------------------------------------------------------
+# ------------------------------------------------------------------
 # Update the count only after we are done (if it was only partial, the
 # count will be the same, so the next backup will just try again in the
 # same slot)
 
-if [ $NOCOUNT -ne 1 ] ; then
-  COUNT=`/usr/bin/expr $COUNT + 1`
-  if [ $REMOTEDST -ne 0 ] ; then
+COUNT=`/usr/bin/expr $COUNT + 1`
+if [ $REMOTEDST -ne 0 ] ; then
     ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
-  else 
+else 
     if [ x$TESTING = x ] ; then
-      /bin/echo $COUNT > ${DSTPATH}/.count
+        /bin/echo $COUNT > ${DSTPATH}/.count
     fi
-  fi
 fi
 
 exit 0
