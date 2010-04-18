@@ -58,6 +58,30 @@ if [ $THISUID -ne 0 ] ; then
 fi
 
 #-------------------------------------------------------------------------
+# Trap to clean up temporary files
+
+declare -a on_exit_items
+
+function on_exit()
+{
+    for i in "${on_exit_items[@]}"
+    do
+        /bin/echo "on_exit: $i"
+        eval $i
+    done
+}
+
+function add_on_exit()
+{
+    local n=${#on_exit_items[*]}
+    on_exit_items[$n]="$*"
+    if [[ $n -eq 0 ]]; then
+        /bin/echo "Setting trap"
+        trap on_exit EXIT
+    fi
+}
+
+#-------------------------------------------------------------------------
 
 function usage {
     /bin/echo "Usage:  backsnap [options] --dest=<dst> <src> [<src>]"
@@ -135,16 +159,27 @@ if [ $REMOTE -gt 1 ] ; then
 fi
 
 #-------------------------------------------------------------------------
-# Include and validate the config file
-source /etc/backsnap/config
+# Deal with possibly remote config and excludes files
 
-if [ z$EXCLUDE_FILE = z ] ; then
-    EXCLUDE_FILE=/dev/null
+TMPDIR=`/usr/bin/mktemp -d`
+add_on_exit rm -rf --one-file-system --preserve-root $TMPDIR
+
+if [ $REMOTESRC -ne 0 ] ; then
+    SRCHOST=`/bin/echo ${INSRC} | /usr/bin/awk '{print $1}' | /usr/bin/awk -F: '{print $1}'`
+    ${TESTING} /usr/bin/ionice -c3 /usr/bin/scp $SRCHOST:/etc/backsnap/config $SRCHOST:/etc/backsnap/excludes $TMPDIR
+    if [ $? -ne 0 ] ; then
+        /bin/echo "Failed to find $SRCHOST:/etc/backsnap/config or $SRCHOST:/etc/backsnap/excludes"
+        exit 1
+    fi
+else
+    cp /etc/backsnap/config /etc/backsnap/excludes $TMPDIR
+    if [ $? -ne 0 ] ; then
+        /bin/echo "Failed to find /etc/backsnap/config or /etc/backsnap/excludes"
+        exit 1
+    fi
 fi
-if [ ! -r $EXCLUDE_FILE ] ; then
-    /bin/echo "Cannot read exclude file $EXCLUDE_FILE"
-    exit 1
-fi
+source $TMPDIR/config
+EXCLUDE_FILE=$TMPDIR/excludes
 
 #-------------------------------------------------------------------------
 # Setup a few general parameters
@@ -243,8 +278,15 @@ SRCDIR=`/usr/bin/dirname $SRCPATH`
 # NOTE: we use ${INDST}/${TARGET} instead of ${INDST}/${TARGET}/${SRCDIR}
 # because we know it exists, no need to create it, tests our permissions,
 # and --dry-run doesn't write anything anyways.
-${TESTING} /usr/bin/ionice -c3 /usr/bin/rsync -lptgoDxSn \
-    --numeric-ids ${PERFOPTS} --dry-run --dirs \
+
+# not recursive, dirs copys as dir not going in,
+# --links, --perms --times --group --owner --devices --specials all from -a
+
+${TESTING} /usr/bin/ionice -c3 /usr/bin/rsync \
+    --links --perms --times --group --owner \
+    --devices --specials --one-file-system --sparse \
+    --numeric-ids ${PERFOPTS} --dirs \
+    --dry-run \
     ${INSRC} ${INDST}/${TARGET}
 exitval=$?
 # Errors which are acceptible for proceeding: 0,6,21,23,24,25
@@ -337,7 +379,8 @@ for INSRC in $INSRCLIST; do
         LINKPARAM=
     fi
 
-    ${TESTING} /usr/bin/ionice -c3 /usr/bin/rsync -axS \
+    ${TESTING} /usr/bin/ionice -c3 /usr/bin/rsync --archive \
+        --one-file-system --sparse \
         --exclude-from=${EXCLUDE_FILE} \
         --numeric-ids ${LINKPARAM} ${PERFOPTS} \
         ${INSRC} ${INDST}/${TARGET}${SRCDIR}
