@@ -228,6 +228,39 @@ if [ x$TARGET = x ] ; then
 fi
 
 #---------------------------------------------------------------------
+# Validate access for first SRC (before deleting target)
+
+# If multiple src, just use the first for validation:
+INSRC=`echo $INSRCLIST | awk '{ print $1; }'`
+
+if [ $REMOTESRC -ne 0 ] ; then
+    SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
+else
+    SRCPATH=${INSRC}
+fi
+SRCDIR=`/usr/bin/dirname $SRCPATH`
+
+# NOTE: we use ${INDST}/${TARGET} instead of ${INDST}/${TARGET}/${SRCDIR}
+# because we know it exists, no need to create it, tests our permissions,
+# and --dry-run doesn't write anything anyways.
+/usr/bin/ionice -c3 ${TESTING} /usr/bin/rsync -lptgoDxSn \
+    --numeric-ids ${PERFOPTS} --dry-run --dirs \
+    ${INSRC} ${INDST}/${TARGET}
+exitval=$?
+# Errors which are acceptible for proceeding: 0,6,21,23,24,25
+case $exitval in
+    (0|6|21|23|24|25) ;;
+    *)
+        /bin/echo "Dry-run failed.  Bailing out."
+        exit 1
+        ;;
+esac
+
+# Unset these validation variables
+SRCPATH=
+SRCDIR=
+
+#---------------------------------------------------------------------
 # Delete target
 
 SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
