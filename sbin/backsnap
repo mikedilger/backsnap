@@ -172,7 +172,7 @@ if [ $REMOTESRC -ne 0 ] ; then
         exit 1
     fi
 else
-    cp /etc/backsnap/config /etc/backsnap/excludes $TMPDIR
+    /bin/cp /etc/backsnap/config /etc/backsnap/excludes $TMPDIR
     if [ $? -ne 0 ] ; then
         /bin/echo "Failed to find /etc/backsnap/config or /etc/backsnap/excludes"
         exit 1
