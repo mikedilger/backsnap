@@ -234,13 +234,13 @@ fi
 
 if [ z"$MAXBACKUPS" = z ] ; then MAXBACKUPS=8; fi
 
-COUNT=`${DSTACCESS} /bin/cat ${DSTPATH}/.count 2>/dev/null`
+COUNT=`${DSTACCESS} /bin/cat ${DSTPATH}/.backsnap/count 2>/dev/null`
 if [ x$COUNT = x ] ; then COUNT=0; fi
 
 # safety:
 COUNTWORDS=`/bin/echo $COUNT | /usr/bin/wc -w`
 if [ $COUNTWORDS -ne 1 ] ; then
-    /bin/echo ".count at destination does not contain a single number"
+    /bin/echo "count at destination does not contain a single number"
     exit 1
 fi
 # COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
@@ -411,10 +411,10 @@ ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 
 COUNT=`/usr/bin/expr $COUNT + 1`
 if [ $REMOTEDST -ne 0 ] ; then
-    ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.count"
+    ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.backsnap/count"
 else 
     if [ x$TESTING = x ] ; then
-        /bin/echo $COUNT > ${DSTPATH}/.count
+        /bin/echo $COUNT > ${DSTPATH}/.backsnap/count
     fi
 fi
 
