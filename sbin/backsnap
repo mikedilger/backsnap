@@ -251,7 +251,7 @@ if [ $COUNT -eq 0 ] ; then
 else
   # Tower of hanoi strategy
   MODULUS=1
-  for (( LVL=1 ; $LVL <= $MAXBACKUPS ; LVL=$LVL+1 )) ; do
+  for (( LVL=1 ; $LVL < $MAXBACKUPS ; LVL=$LVL+1 )) ; do
     MODULUS=`/usr/bin/expr $MODULUS \* 2`
     MOD=`/usr/bin/expr $COUNT % $MODULUS`
     if [ $MOD -ne 0 ] ; then break; fi
