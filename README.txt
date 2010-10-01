@@ -22,59 +22,50 @@ FUTURE IDEAS
 * squashfs compression... use this for a permanent offlining of backups.
 
 ------------------------------------------------------------------------------
-INSTALLATION
+DESTINATION DIRECTORY
 
-A backsnap installation typically traverses a network.  You can't just
-install backsnap on a system and be done.  You need to think about your
-layout, and make changes on multiple machines.  We will talk about servers
-and clients.  A server is a place where backups reside.  A client is machine
-that has data to be backed up, and that needs to access historical data from
-time to time.
+First you need to setup a destination directory to receive backups.  You
+should use separate destination directories for separate sources.  For
+instance, Let's use /backups/zorro.  In this directory, create a
+/backups/zorro/.backsnap/ directory and in this directory create your
+/backups/zorro/.backsnap/config and /backups/zorro/.backsnap/excludes files.
+
+config can be empty but can optionally contain these two variables:
+  FASTNET=false
+	If set to false, backsnap will compress network traffic.
+	If set to true it will not
+  MAXBACKUPS=8
+	This is the maximum number of backup rotations to keep.
+
+excludes is simply a list of directories and files to exclude from
+backing up, one per line.  /backups/zorro/.backsnap/excludes must exist
+so if you want to exclude nothing, make it an empty file.
+
+Destination directories may either be on the local machine where
+backsnap is run, or on a remote machine.  If they are on a remote machine,
+that machine must have rsyncd and sshd running, and remote access by the
+local backsnap user (usually without a password) via ssh must be allowed.
+You can do this with an .ssh/authorized_keys file, e.g.:
+
+   client# ssh-keygen
+           [just hit RETURN when asked for a password]
+   client# scp /root/.ssh/id_rsa.pub server:/root/.ssh/client.pub
+   server# cat /root/.ssh/client.pub >> /root/.ssh/authorized_keys
+
+Make sure there is enough space on the destination.  For the default 8
+backup rotations spanning up to 128 days, you may need 1.5x to 3x of the
+original space, but this of course depends upon your usage.
+
+Choose a good filesystem.  The delete takes a long time on most filesystems.
+XFS has fast deletes, and is recommended.  However reiserfs saves space
+with small files, so that is also a fairly good choice.
+
+Raid redundancy is probably not needed on the backup disk because backups are
+already a redundant copy.   However if the disk fails you would lose the
+multiple backup history.
 
 ------------------------------------------------------------------------------
-BELOW THIS LINE IS SOMEWHAT OUTDATED, AND PRESUMES CLIENTS PUSH
-------------------------------------------------------------------------------
-INSTALLATION:  SERVER
-
-A backsnap server does not need any special backsnap software installed.
-But it DOES need rsyncd, sshd, and nfs services (and in the future,
-squashfs), and it needs each of these to be configured as described here.
-
-X) Create an empty directory to store backups.
-
-   X.a)  SPACE:  Make sure there is enough space.  For the default 8 backups
-         spanning up to 128 days, you may need 1.5x to 3x of the original
-         space, but this of course depends upon your usage.
-
-   X.b)  FILESYSTEM:  The delete takes a long time on most filesystems.  XFS
-         has fast deletes, and is recommended.  However reiserfs saves space
-         with small files, so that is also a fairly good choice.
-
-   X.c)  DISK:  Raid redundancy is not needed on the backup because backups
-         are already a redundant copy.
-
-X) Install sshd, and configure it to run at boot
-
-X) Allow passwordless ssh access from root@eachclient to root@server.  I
-   recommend using publickey crypto as follows:
-
-   2a) client# ssh-keygen
-	       [just hit RETURN when asked for a password]
-
-   2b) client# scp /root/.ssh/id_rsa.pub server:/root/.ssh/client.pub
-
-   2c) server# cat /root/.ssh/client.pub >> /root/.ssh/authorized_keys
-
-X) Install rsyncd, and configure it to run at boot
-
-X) Configure rsyncd
-
-X) Install nfs, and configure it to run at boot
-
-X) Add the following line to /etc/exports, substituting the proper values
-   for your network, and the backup path
-
-
+BELOW THIS LINE IS OLD
 ------------------------------------------------------------------------------
 INSTALLATION:  CLIENT
 
