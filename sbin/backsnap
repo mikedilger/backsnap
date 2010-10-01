@@ -1,6 +1,6 @@
 #!/bin/sh
 # Backsnap:   Pushes or pulls a backup snapshot to/from a directory to backup
-VERSION=0.2
+VERSION=0.3
 #
 # Usage:  backsnap <dest> <src> [<src> ...]
 #
@@ -10,6 +10,15 @@ VERSION=0.2
 #     Either <dest> or <src> (but not both) may be a remote path in the
 #     form <hostname>:<path>.   In these cases, ssh is used.
 #
+# NOTE ON VERSION 0.3:
+# Configiration data must be in <dest>/.backsnap in these files:
+#    <dest>/.backsnap/config
+#    <dest>/.backsnap/excludes
+#    <dest>/.backsnap/count
+# Configuration information in /etc/backsnap is no longer relevant.  That
+# is because backsnap operation is no longer conceived to be per-system
+# but rather per-destination.
+#
 # NOTE ON NEW VERSION 0.1:
 # After backsnap 'rotates' previous backups, it will clear the destination.
 # Then it will backup each <src> into this destination.  Then it will update
@@ -17,8 +26,6 @@ VERSION=0.2
 # data to this destination IT WILL CLEAR IT FIRST.   So make it all one
 # command.  The --nocount and --noclear options have been removed, and
 # backsnap will fail to run if it encounters an option it doesn't understand.
-#
-# Configuration options are in /etc/backsnap/config
 #
 # backsnap must be run as root, and must have root access via ssh to the
 #   remote system, without password prompts (it is recommended to use
@@ -158,23 +165,33 @@ if [ $REMOTE -gt 1 ] ; then
     exit 1
 fi
 
+# Parse INDST
+if [ $REMOTEDST -ne 0 ] ; then
+    DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
+    DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
+    DSTACCESS="/usr/bin/ssh ${DSTHOST}"
+else
+    DSTHOST=
+    DSTPATH=${INDST}
+    DSTACCESS=
+fi
+
 #-------------------------------------------------------------------------
 # Deal with possibly remote config and excludes files
 
 TMPDIR=`/usr/bin/mktemp -d`
 add_on_exit /bin/rm -rf --one-file-system --preserve-root $TMPDIR
 
-if [ $REMOTESRC -ne 0 ] ; then
-    SRCHOST=`/bin/echo ${INSRCLIST} | /usr/bin/awk '{print $1}' | /usr/bin/awk -F: '{print $1}'`
-    ${TESTING} /usr/bin/ionice -c 3 /usr/bin/scp $SRCHOST:/etc/backsnap/config $SRCHOST:/etc/backsnap/excludes $TMPDIR
+if [ $REMOTEDST -ne 0 ] ; then
+    /usr/bin/ionice -c 3 /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/excludes $TMPDIR
     if [ $? -ne 0 ] ; then
-        /bin/echo "Failed to find $SRCHOST:/etc/backsnap/config or $SRCHOST:/etc/backsnap/excludes"
+        /bin/echo "Failed to find $DSTHOST:$DSTPATH/.backsnap/config or $DSTHOST:$DSTPATH/.backsnap/excludes"
         exit 1
     fi
 else
-    /bin/cp /etc/backsnap/config /etc/backsnap/excludes $TMPDIR
+    /bin/cp $DSTPATH/.backsnap/config $DSTPATH/.backsnap/excludes $TMPDIR
     if [ $? -ne 0 ] ; then
-        /bin/echo "Failed to find /etc/backsnap/config or /etc/backsnap/excludes"
+        /bin/echo "Failed to find $DSTPATH/.backsnap/config or $DSTPATH/.backsnap/excludes"
         exit 1
     fi
 fi
@@ -197,17 +214,6 @@ else
     #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
     # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
     export RSYNC_RSH="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
-fi
-
-# Parse INDST
-if [ $REMOTEDST -ne 0 ] ; then
-    DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
-    DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
-    DSTACCESS="/usr/bin/ssh ${DSTHOST}"
-else
-    DSTHOST=
-    DSTPATH=${INDST}
-    DSTACCESS=
 fi
 
 #---------------------------------------------------------------------
