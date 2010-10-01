@@ -166,7 +166,7 @@ add_on_exit /bin/rm -rf --one-file-system --preserve-root $TMPDIR
 
 if [ $REMOTESRC -ne 0 ] ; then
     SRCHOST=`/bin/echo ${INSRCLIST} | /usr/bin/awk '{print $1}' | /usr/bin/awk -F: '{print $1}'`
-    ${TESTING} /usr/bin/ionice -c3 /usr/bin/scp $SRCHOST:/etc/backsnap/config $SRCHOST:/etc/backsnap/excludes $TMPDIR
+    ${TESTING} /usr/bin/ionice -c 3 /usr/bin/scp $SRCHOST:/etc/backsnap/config $SRCHOST:/etc/backsnap/excludes $TMPDIR
     if [ $? -ne 0 ] ; then
         /bin/echo "Failed to find $SRCHOST:/etc/backsnap/config or $SRCHOST:/etc/backsnap/excludes"
         exit 1
@@ -196,7 +196,7 @@ else
     #    -o Compression=no:   rsync already compresses, ssh doesn't need to
     #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
     # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
-    export RSYNC_RSH="/usr/bin/ionice -c3 /usr/bin/ssh -c arcfour -o Compression=no -x"
+    export RSYNC_RSH="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
 fi
 
 # Parse INDST
@@ -282,7 +282,7 @@ SRCDIR=`/usr/bin/dirname $SRCPATH`
 # not recursive, dirs copys as dir not going in,
 # --links, --perms --times --group --owner --devices --specials all from -a
 
-${TESTING} /usr/bin/ionice -c3 /usr/bin/rsync \
+${TESTING} /usr/bin/ionice -c 3 /usr/bin/rsync \
     --links --perms --times --group --owner \
     --devices --specials --one-file-system --sparse \
     --numeric-ids ${PERFOPTS} --dirs \
@@ -314,7 +314,7 @@ fi
 
 /bin/echo
 /bin/echo "Clearing destination ${DSTPATH}/${TARGET} ..."
-${TESTING} ${DSTACCESS} /usr/bin/ionice -c3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}
+${TESTING} ${DSTACCESS} /usr/bin/ionice -c 3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}
 
 #---------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
@@ -345,7 +345,7 @@ for INSRC in $INSRCLIST; do
     #---------------------------------------------------------------------
     # If dest directory exists, clear it
     /bin/echo "Clearing destination ${DSTPATH}/${TARGET}${SRCPATH} ..."
-    ${TESTING} ${DSTACCESS} /usr/bin/ionice -c3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
+    ${TESTING} ${DSTACCESS} /usr/bin/ionice -c 3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
     
     #---------------------------------------------------------------------
     # Make a directory for the new backup
@@ -379,7 +379,7 @@ for INSRC in $INSRCLIST; do
         LINKPARAM=
     fi
 
-    ${TESTING} /usr/bin/ionice -c3 /usr/bin/rsync --archive \
+    ${TESTING} /usr/bin/ionice -c 3 /usr/bin/rsync --archive \
         --one-file-system --sparse \
         --exclude-from=${EXCLUDE_FILE} \
         --numeric-ids ${LINKPARAM} ${PERFOPTS} \
