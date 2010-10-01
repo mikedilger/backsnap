@@ -115,6 +115,10 @@ for PARAM in $@; do
                 --fastnet)
                     FASTNET=true
                     ;;
+                --maxbackups)
+                    shift
+                    MAXBACKUPS=$1
+                    ;;
                 --dry-run)
                     TESTING="/bin/echo"
                     ;;
@@ -239,28 +243,17 @@ if [ $COUNTWORDS -ne 1 ] ; then
 fi
 # COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
 
-AMOD=`/usr/bin/expr $COUNT % 2`     # Every odd try
-BMOD=`/usr/bin/expr $COUNT % 4`     # Every odd 2nd (2, not 4, 6, not 8, ...)
-CMOD=`/usr/bin/expr $COUNT % 8`     # Every odd 4th (4, not 8, 12, ...)
-DMOD=`/usr/bin/expr $COUNT % 16`    # ...
-EMOD=`/usr/bin/expr $COUNT % 32`
-FMOD=`/usr/bin/expr $COUNT % 64`
-GMOD=`/usr/bin/expr $COUNT % 128`   # Every odd 64th (64, not 128, ...)
+if [ z"$MAXBACKUPS" = z ] ; then MAXBACKUPS=8; fi
 
+MODULUS=1
+for (( LVL=1 ; $LVL <= $MAXBACKUPS ; LVL=$LVL+1 )) ; do
+  MODULUS=`/usr/bin/expr $MODULUS \* 2`
+  MOD=`/usr/bin/expr $COUNT % $MODULUS`
+  if [ $MOD -ne 0 ] ; then break; fi
+done
 # Worst case backup period is (2^(n-2)+1) backups
 # Best case backup period is (2^(n-1)) backups
-# We go up to H (n=8), so we have backups dating from
-#   65 (worst case) to 128 (best case) backups ago
-
-if [ $AMOD -ne 0 ] ; then TARGET='A'
-elif [ $BMOD -ne 0 ] ; then TARGET='B'
-elif [ $CMOD -ne 0 ] ; then TARGET='C'
-elif [ $DMOD -ne 0 ] ; then TARGET='D'
-elif [ $EMOD -ne 0 ] ; then TARGET='E'
-elif [ $FMOD -ne 0 ] ; then TARGET='F'
-elif [ $GMOD -ne 0 ] ; then TARGET='G'
-else TARGET='H';
-fi
+TARGET='LEVEL'$LVL
 
 if [ x$TARGET = x ] ; then
     /bin/echo "TARGET did not get set."

@@ -5,3 +5,7 @@
 # will optimize for that.  If you are backing up over a slow link, such
 # as across the Internet, set it to false
 FASTNET=true
+
+# ------------------------------------------------------------------------
+# Maximum number of backups.  Default to eight
+MAXBACKUPS=8

@@ -5,12 +5,12 @@ FEATURES
 
 * Backups traverse the network to a backup server.
 * Snapshots are taken as often as you run the program, and rotated.
-* EIGHT full snapshots are kept, in a kind of exponential backoff (using the
-     Towers of Hanoi strategy).  You always have the last, and the oldest
-     one ranges from 65-128 days old.
-* Even though 8 snapshots are kept, the storage required is much less than
-     8-fold of the original media, because hard links are used for files in
-     common.
+* Up to EIGHT full snapshots are kept, in a kind of exponential backoff
+     (using the Towers of Hanoi strategy).  You always have the last, and
+     the oldest one ranges from 65-128 days old.
+* Even though (up to) 8 snapshots are kept, the storage required is much less
+     than 8-fold of the original media, because hard links are used for files
+     in common.
 * The snapshots can be NFS mounted read-only, so recovery is simply a
      matter of rooting around in those directories and finding what you want.
 * Uses only standard unix commands
