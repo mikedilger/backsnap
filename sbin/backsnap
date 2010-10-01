@@ -232,8 +232,10 @@ fi
 #---------------------------------------------------------------------
 # Determine the rotation target
 
+if [ z"$MAXBACKUPS" = z ] ; then MAXBACKUPS=8; fi
+
 COUNT=`${DSTACCESS} /bin/cat ${DSTPATH}/.count 2>/dev/null`
-if [ x$COUNT = x ] ; then COUNT=1; fi
+if [ x$COUNT = x ] ; then COUNT=0; fi
 
 # safety:
 COUNTWORDS=`/bin/echo $COUNT | /usr/bin/wc -w`
@@ -243,17 +245,21 @@ if [ $COUNTWORDS -ne 1 ] ; then
 fi
 # COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
 
-if [ z"$MAXBACKUPS" = z ] ; then MAXBACKUPS=8; fi
-
-MODULUS=1
-for (( LVL=1 ; $LVL <= $MAXBACKUPS ; LVL=$LVL+1 )) ; do
-  MODULUS=`/usr/bin/expr $MODULUS \* 2`
-  MOD=`/usr/bin/expr $COUNT % $MODULUS`
-  if [ $MOD -ne 0 ] ; then break; fi
-done
-# Worst case backup period is (2^(n-2)+1) backups
-# Best case backup period is (2^(n-1)) backups
-TARGET='LEVEL'$LVL
+if [ $COUNT -eq 0 ] ; then
+  # Pre-tower strategy, do last level once
+  TARGET='LEVEL'$MAXBACKUPS
+else
+  # Tower of hanoi strategy
+  MODULUS=1
+  for (( LVL=1 ; $LVL <= $MAXBACKUPS ; LVL=$LVL+1 )) ; do
+    MODULUS=`/usr/bin/expr $MODULUS \* 2`
+    MOD=`/usr/bin/expr $COUNT % $MODULUS`
+    if [ $MOD -ne 0 ] ; then break; fi
+  done
+  # Worst case backup period is (2^(n-2)+1) backups
+  # Best case backup period is (2^(n-1)) backups
+  TARGET='LEVEL'$LVL
+fi
 
 if [ x$TARGET = x ] ; then
     /bin/echo "TARGET did not get set."
