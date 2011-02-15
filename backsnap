@@ -91,7 +91,7 @@ function add_on_exit()
 #-------------------------------------------------------------------------
 
 function usage {
-    /bin/echo "Usage:  backsnap [options] --dest=<dst> <src> [<src>]"
+    /bin/echo "Usage:  backsnap [options] <dst> <src> [<src>]"
     /bin/echo "  --version    Print the version"
     /bin/echo "  --fastnet    Don't use network compression"
     /bin/echo "  --dry-run    Just print what it would do, don't actually"
@@ -351,7 +351,7 @@ for INSRC in $INSRCLIST; do
     # If dest directory exists, clear it
     /bin/echo "Clearing destination ${DSTPATH}/${TARGET}${SRCPATH} ..."
     ${TESTING} ${DSTACCESS} /usr/bin/ionice -c 3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
-    
+
     #---------------------------------------------------------------------
     # Make a directory for the new backup
     /bin/echo "Making destination ${DSTPATH}/${TARGET}${SRCDIR} ..."
