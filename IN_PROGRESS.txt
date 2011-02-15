@@ -1,0 +1,7 @@
+WE ARE GOING TO
+  1) Move to python (from bash)
+  2) Ignore gentoo system files that match the portage database.
+
+1) good luck.
+2) /var/db/pkg/*/*/CONTENTS lists the files, 4 columns:
+	(obj|dir|sym) path md5sum mtime
