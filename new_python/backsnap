@@ -1,0 +1,414 @@
+#!/bin/env python3
+
+# DEFINE VARIABLES -----------------------------------------------------------
+MANUAL="""
+You must first configure the backup destination, in particular the excludes
+file.   At the destination, there must exist a .backsnap directory and an
+excludes file:
+
+  <dest>/.backsnap/excludes  - list of directories and files to exclude,
+                               one path per line.
+
+Backsnap will create and manage other files in this directory you can
+safely ignore (e.g. count and index).
+
+Backups at the destination will be in directories named LEVELn/
+where n is the level.  These level numbers do NOT represent time order,
+but rather tower-of-hanoi depth.  To list the backups from oldest to
+newest, pass the -t option to /bin/ls.
+
+Do not run backsnap multiple times to back up multiple sources.  Rather
+list all the sources to be backed up on the command line for one
+invocation.  Otherwise it will increment the count, clear the destination
+(possibly erasing an older backup), and backup the data at a different
+backup level from the previous invocation.
+
+Backsnap must be run as root, and it must have root access to <dest>
+and <src>.  If this includes root access over the network via ssh,
+then ssh must not be impinged with password prompts. This can be
+achieved with ssh authorized_keys.  See ssh for details.
+
+Features:
+
+* Keeps multiple levels of backups using the tower-of-hanoi strategy.
+* Uses rsync and the previous backup in such a way that it only copies
+  data that has changed since the previous backup was taken.
+* If a file hasn't changed, it is included in the new backup via a hardlink,
+  so the data is not duplicated and yet the new backup directory contains
+  all of the files (for this reason, keeping 8 levels of backup doesn't take
+  8x of the original space, in practice it is closer to 2x)
+* Supports both push and pull architectures
+* Is portage-aware, skipping system files which have not been altered
+  from the package default
+* Backups are fully functional filesystems, so they are mountable (read-only
+  please) and recovery is a cinch.  (If we compressed them we wouldn't save
+  space because we'd lose the hardlink savings)
+* Encrypted transit using ssh
+* Uses nice and ionice so your system doesn't bog down during operation
+* Optionally uses network compression for slow (or expensive) networks
+
+Examples:
+
+  Example push usage from cron:
+    59 15 * * *  root  /sbin/backsnap pluto:/backups/earth / /var
+
+  Example pull usage from cron:
+    45 2 * * 2   root  /sbin/backsnap /backups/earth earth:/ earth:/boot earth:/var
+
+  Example read-only nfs mounting backups, backup server /etc/exports:
+    /backups 192.168.1.0/24(ro,async,no_root_squash,no_subtree_check)
+
+  Example read-only nfs mounting backups, client fstab:
+    pluto:/backups/earth   /snapshots  nfs  proto=tcp,ro,noatime,soft,intr,nolock 0 0
+"""
+
+CREDITS="""by Michael Dilger <mike@mikedilger.com>
+  gentoo package file checking code from
+    Vincent Delft <vincent_delft@yahoo.com>
+  rsync backup ideas taken from:
+    http://www.mikerubel.org/computers/rsync_snapshots/
+    http://www.sanitarium.net/golug/rsync_backups.html
+  tower of hanoi strategy from:
+    http://en.wikipedia.org/wiki/Backup_rotation_scheme
+"""
+
+AUTHOR="Michael Dilger"
+VERSION="0.4"
+LAST_MODIFICATION="15 February 2011"
+
+# IMPORTS --------------------------------------------------------------------
+
+import os.path,os
+try:
+  import cPickle as pickle
+except:
+  import pickle
+import sys
+import string
+import fnmatch
+import signal
+
+# EXIT HANDLER AND TRAP SIGNALS ----------------------------------------------
+
+ONEXIT=[]
+def exitcode():
+  global ONEXIT
+  for code in ONEXIT:
+    exec(code)
+  sys.exit(1)
+
+for i in [x for x in dir(signal) if x.startswith("SIG")]:
+  try:
+    #print(i)
+    signum = getattr(signal,i)
+    signal.signal(signum,exitcode)
+  except RuntimeError as m:
+    #print("Notice: Not trapping signal {0}".format(i))
+    pass
+  except ValueError:
+    pass
+
+# e.g.
+  #ONEXIT.append('''# remove temp dir
+  ##/bin/rm -rf --one-file-system --preserve-root $TMPDIR   # but this is bash
+  #'''
+  #);
+
+# PARSE COMMAND LINE ---------------------------------------------------------
+
+def print_manual(option,opt,value,parser):
+  global MANUAL
+  parser.print_help()
+  print(MANUAL)
+  exitcode()
+
+def print_credits(option,opt,value,parser):
+  global CREDITS
+  print(CREDITS)
+  exitcode()
+
+indstisset = 0
+indst = ""
+insrclist = ""
+
+from optparse import OptionParser
+parser = OptionParser(usage="usage: %prog [options] <dest> <src> [<src> ...]",
+                      version="%prog {0}".format(VERSION),
+                      description="Backsnap (backup snapshot) backs up directories, manages multiple backup levels, works over the network, and skips system files.   You must specify a <dest> path and at least one <src> path.  Either <dest> or <src> (but not both) may be a remote path in the form <hostname>:<path>, in which case ssh is used.   If <src> is in this form, all <src> arguments must use the same hostname.")
+
+parser.add_option("--manual",
+                  action="callback", callback=print_manual,
+                  help="Long help message (like a man page)")
+parser.add_option("--dry-run",
+                  action="store_true",
+                  dest="dryrun",
+                  default=False,
+                  help="Just print what it would do, but don't actually do it")
+parser.add_option("--slownet",
+                  action="store_true",
+                  dest="slownet",
+                  default=False,
+                  help="Use network compression [default: %default]")
+parser.add_option("--rootdir",
+                  action="store",
+                  dest="rootdir",
+                  default="/",
+                  help="Root directory of the source [default: %default]")
+parser.add_option("--mtimeonly",
+                  action="store_true",
+                  dest="mtimeonly",
+                  default=False,
+                  help="Compare system files based on mtime only (skip md5) "
+                  "[default: %default]")
+parser.add_option("--incsystem",
+                  action="store_true",
+                  dest="incsystem",
+                  default=False,
+                  help="Include all system files in the backup "
+                  "[default: %default]")
+parser.add_option("--maxbackups",
+                  action="store",
+                  type="int",
+                  dest="maxbacukps",
+                  default=8,
+                  help="Number of levels deep for tower of hanoi "
+                  "[default: %default]")
+parser.add_option("--credits",
+                  action="callback", callback=print_credits,
+                  help="Print credits")
+
+(options, args) = parser.parse_args()
+
+# Verify that we are running as root -----------------------------------------
+
+#if os.geteuid()!=0:
+#  print("backsnap will only run as root.")
+#  exitcode()
+
+# DEBUG EXIT EARLY -----------------------------------------------------------
+
+ONEXIT.append('print("hi")');
+ONEXIT.append('print("bye")');
+print("debugging, this script bailing out early.")
+exitcode()
+
+# TEMP DIR -------------------------------------------------------------------
+
+import tempfile
+tempdir = tempfile.mkdtemp()
+
+# FETCH REMOTE CONFIGURATION -------------------------------------------------
+
+
+# EXCLUDED_FILES=['/usr/lib/python2*.pyc','/tmp/*','/dev/*','/proc/*','/var/db/pkg/*','/var/tmp/*','/var/cache/edb/*','/usr/src/linux-2.4*','/usr/portage/*','/photo/*','/music/*','/films/*','/didier/*']
+
+# File Checksum Function -----------------------------------------------------
+
+# perform_checksum(filename) returns the checksum.
+# copied from /usr/lib/portage/bin/archive-conf
+try:
+  import fchksum
+  def perform_checksum(filename): return fchksum.fmd5t(filename)
+except ImportError:
+  import md5
+  def md5_to_hex(md5sum):
+    hexform = ""
+    for ix in xrange(len(md5sum)):
+      hexform = hexform + "%02x" % ord(md5sum[ix])
+      return hexform.lower()
+
+    def perform_checksum(filename):
+      f = open(filename, 'rb')
+      blocksize=32768
+      data = f.read(blocksize)
+      size = 0
+      sum = md5.new()
+      while data:
+        sum.update(data)
+        size = size + len(data)
+        data = f.read(blocksize)
+        return (md5_to_hex(sum.digest()),size)
+
+# BUILD GENTOO CONTENTS ------------------------------------------------------
+
+CONTENTS={}
+PKGS={}
+
+# XXXXX
+# EXCLUDED_FILES should be a list []
+
+TOTAL_SIZE=0
+OUTPUT='/var/db/files_to_backup'
+SPECIAL_CHAR=['-','\\','|','/']
+SPECIAL_CHAR_POS=0
+
+
+
+# FROM OTHER PYTHON SCRIPT:
+#   ./backup.py [-h|--help] [-r] [-t] [-b <tgz>] [-d <dir>]
+#
+#   -h --help : this help
+#   -r : rebuild the whole indexes by scanning the /var/db/pkg files
+#   -t : compare files based on mtime only (skip md5sum)
+#   -b : build a tgz file. a-pkgs file will be created with the list of installed packages
+#   -d : point of start for the analyze. Should be '/'
+#
+# This tool compares files you have installed with files we can find in installed gentoo packages. This comparison is based on md5sum, but you can skip it with the '-t' option. The result is put in /var/db/contents.dict, /var/db/files_to_backup and /var/db/pkgs.dict.
+#
+# With the -b option, you can directly create all the files necessary to rebuild your prefered gentoo distro.
+# The <tgz> and <tgz>-pkgs files will allow you to rebuild the exact same enviroment.
+
+
+def output(data):
+    global SPECIAL_CHAR, SPECIAL_CHAR_POS
+    fid=open(OUTPUT,'a')
+    fid.write("%s\n" % data)
+    fid.close()
+    sys.stdout.write('Analyzing directories : ' + SPECIAL_CHAR[SPECIAL_CHAR_POS] + '\r')
+    sys.stdout.flush()
+    SPECIAL_CHAR_POS+=1
+    if SPECIAL_CHAR_POS==4: SPECIAL_CHAR_POS=0
+
+def file_to_exclude(file):
+    for excl in EXCLUDED_FILES:
+        if fnmatch.fnmatch(file,excl):
+            return 1
+    return 0
+
+def parse_dir(arg,dirname, files):
+    global TOTAL_SIZE
+    #if dir_to_exclude(dirname):
+    #    return
+    for file in files:
+       curfile=os.path.join(dirname,file)
+       if file_to_exclude(curfile):
+           continue
+       if os.path.isdir(curfile):
+           pass
+       elif os.path.islink(curfile):
+           if not CONTENTS.has_key(curfile):
+               output(curfile)
+       elif os.path.isfile(curfile):
+           size=os.path.getsize(curfile)
+           if not CONTENTS.has_key(curfile):
+               output(curfile)
+               TOTAL_SIZE += size
+           else:
+               if arg['test_on_time']:
+                   mtimereal=str(os.path.getmtime(curfile))
+                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
+                   if mtimereal not in mtimestored:
+                       output(curfile)
+                       TOTAL_SIZE += size
+               else:
+                   md5stored = [string.lower(res['chksum']) for res in CONTENTS[curfile]]
+                   md5real = string.lower(perform_checksum(curfile)[0])
+                   if (md5real not in md5stored):
+                       output(curfile)
+                       TOTAL_SIZE += size
+       else:
+           output(curfile)
+
+def analyze_dirs(dir,arg):
+    if len(CONTENTS)==0:
+        print("load CONTENTS first")
+        return
+    if dir[0]!="/":
+        print("Only full path names are accepted!!!!")
+        print("{0} is not valid".format(dir))
+        print("May be you've forget the leading '/'")
+        return
+    print("Analyzing your directories")
+    os.path.walk(dir,parse_dir,arg)
+    print("Analyze finished")
+    print("{0} bytes ".format(TOTAL_SIZE))
+
+
+def parse_contents(file):
+    global CONTENTS,PKGS
+    package=file.split('/')[-2]
+    file_content=open(file).readlines()
+    for line in file_content:
+        content=line.split()
+        result={'pkg':package,'type':content[0]}
+        if content[0]=='obj':
+            result['chksum']=content[2]
+            result['mtime']=content[3]
+        if content[0]=='sym':
+            result['link']=content[3]
+        #some files belongs to several packages
+        if CONTENTS.has_key(content[1]):
+            CONTENTS[content[1]].append(result)
+        else:
+            CONTENTS[content[1]]=[result]
+        PKGS[package]=1
+
+def analyze_pkg(arg,dirname,files):
+    for file in files:
+        if file=='CONTENTS':
+            print("."),
+            parse_contents(os.path.join(dirname,file))
+
+def update_contents():
+    print("Analyzing your packages")
+    os.path.walk('/var/db/pkg/',analyze_pkg,'')
+    print("Analyze finished")
+    print("{0} files indexed".format(len(CONTENTS)))
+
+def load_contents():
+    global CONTENTS
+    print("Loading your index")
+    fid=open('/var/db/contents.dict','r')
+    CONTENTS=cPickle.load(fid)
+    fid.close()
+    print("Load finished")
+    print("{0} files indexed".format(len(CONTENTS)))
+
+def load_pkgs():
+    global PKGS
+    fid=open('/var/db/pkgs.dict','r')
+    PKGS=cPickle.load(fid)
+    fid.close()
+
+def save():
+    global CONTENTS,PKGS
+    fid=open('/var/db/contents.dict','w')
+    cPickle.dump(CONTENTS,fid)
+    fid.close()
+    fid=open('/var/db/pkgs.dict','w')
+    cPickle.dump(PKGS,fid)
+    fid.close()
+
+def make_backup(tgz_file):
+    os.system('tar -czvf %s -T %s' % (tgz_file,OUTPUT))
+    pkgs=PKGS.keys()
+    pkgs.sort()
+    fid=open('%s-pkgs' % tgz_file,'w')
+    for pkg in pkgs:
+       fid.write('%s\n' % pkg)
+    fid.close()
+
+
+if __name__=="__main__":
+    if len(sys.argv)>1:
+        arg={'test_on_time':None}
+        if "-h" in sys.argv or "--help" in sys.argv:
+            print(__usage__)
+            exitcode()
+        if "-r" in sys.argv:
+            update_contents()
+            save()
+        if "-t" in sys.argv:
+            arg={'test_on_time':1}
+        if "-d" in sys.argv:
+            if "-r" not in sys.argv: load_contents()
+            try:
+                os.remove(OUTPUT)
+            except OSError:
+                pass
+            dir=sys.argv[sys.argv.index("-d")+1]
+            analyze_dirs(dir,arg)
+        if "-b" in sys.argv:
+            if "-r" not in sys.argv: load_pkgs()
+            dir=sys.argv[sys.argv.index("-b")+1]
+            make_backup(dir)
