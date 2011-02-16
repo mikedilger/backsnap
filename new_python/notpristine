@@ -81,16 +81,17 @@ def parse_dir(dirname, dirs, files):
         print("Parsing {0}...".format(dirname),file=sys.stderr)
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
-        size=os.path.getsize(curdir)
-        if curdir in CONTENTS:
-            size_portage+=size
-        else:
-            size_user+=size
+        if os.path.exists(curdir):
+            size=os.path.getsize(curdir)
+            if curdir in CONTENTS:
+                size_portage+=size
+            else:
+                size_user+=size
     for file in files:
         curfile=os.path.join(dirname,file)
-        try:
+        if os.path.exists(curdir)
             size=os.path.getsize(curfile)
-        except OSerror as err:
+        else:
             size=0
         if curfile in CONTENTS:
             if os.path.islink(curfile):
