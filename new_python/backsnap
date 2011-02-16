@@ -1,4 +1,5 @@
 #!/bin/env python3
+# -*- mode: python; -*-
 
 # DEFINE VARIABLES -----------------------------------------------------------
 MANUAL="""
@@ -127,10 +128,6 @@ def print_credits(option,opt,value,parser):
   print(CREDITS)
   exitcode()
 
-indstisset = 0
-indst = ""
-insrclist = ""
-
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options] <dest> <src> [<src> ...]",
                       version="%prog {0}".format(VERSION),
@@ -169,7 +166,7 @@ parser.add_option("--incsystem",
 parser.add_option("--maxbackups",
                   action="store",
                   type="int",
-                  dest="maxbacukps",
+                  dest="maxbackups",
                   default=8,
                   help="Number of levels deep for tower of hanoi "
                   "[default: %default]")
@@ -177,7 +174,23 @@ parser.add_option("--credits",
                   action="callback", callback=print_credits,
                   help="Print credits")
 
-(options, args) = parser.parse_args()
+(options, SRC) = parser.parse_args()
+DEST=SRC[0]
+del SRC[0:1]
+
+print("DEBUG dest = {0}".format(DEST))
+print("DEBUG src = {0}".format(SRC))
+
+# Spinner function -----------------------------------------------------------
+
+SPINNER_CHAR=['-','\\','|','/']
+SPINNER_CHAR_POS=0
+def spin():
+    global SPINNER_CHAR, SPINNER_CHAR_POS
+    sys.stdout.write(SPINNER_CHAR[SPINNER_CHAR_POS] + '\r')
+    sys.stdout.flush()
+    SPINNER_CHAR_POS+=1
+    if SPINNER_CHAR_POS==4: SPINNER_CHAR_POS=0
 
 # Verify that we are running as root -----------------------------------------
 
@@ -185,144 +198,68 @@ parser.add_option("--credits",
 #  print("backsnap will only run as root.")
 #  exitcode()
 
-# DEBUG EXIT EARLY -----------------------------------------------------------
-
-ONEXIT.append('print("hi")');
-ONEXIT.append('print("bye")');
-print("debugging, this script bailing out early.")
-exitcode()
-
 # TEMP DIR -------------------------------------------------------------------
 
 import tempfile
 tempdir = tempfile.mkdtemp()
 
-# FETCH REMOTE CONFIGURATION -------------------------------------------------
+ONEXIT.append("""import shutil
+print("Cleaning up {0}".format(globals()["tempdir"]))
+shutil.rmtree(globals()["tempdir"])
+"""
+              );
+
+# DETERMINE DIRECTION --------------------------------------------------------
+
+# local: both are local
+# push: remote destination
+# pull: remote sources
+
+import re
+direction="local"
+hostmatchprog = re.compile(r"^[^/]+:")
+testdest = hostmatchprog.match(DEST)
+if testdest is None:
+  testsrc = hostmatchprog.match(SRC[0])
+  if testsrc is None:
+    direction="local"
+  else:
+    direction="pull"
+else:
+  direction="push"
+
+print("DEBUG: direction = {0}".format(direction))
+
+# DEBUG EXIT EARLY -----------------------------------------------------------
+
+print("Debugging: this script bailing out early.")
+exitcode()
+
+# FETCH CONFIGURATION --------------------------------------------------------
 
 
-# EXCLUDED_FILES=['/usr/lib/python2*.pyc','/tmp/*','/dev/*','/proc/*','/var/db/pkg/*','/var/tmp/*','/var/cache/edb/*','/usr/src/linux-2.4*','/usr/portage/*','/photo/*','/music/*','/films/*','/didier/*']
+indstisset = 0
+indst = ""
+insrclist = ""
 
-# File Checksum Function -----------------------------------------------------
 
-# perform_checksum(filename) returns the checksum.
-# copied from /usr/lib/portage/bin/archive-conf
-try:
-  import fchksum
-  def perform_checksum(filename): return fchksum.fmd5t(filename)
-except ImportError:
-  import md5
-  def md5_to_hex(md5sum):
-    hexform = ""
-    for ix in xrange(len(md5sum)):
-      hexform = hexform + "%02x" % ord(md5sum[ix])
-      return hexform.lower()
 
-    def perform_checksum(filename):
-      f = open(filename, 'rb')
-      blocksize=32768
-      data = f.read(blocksize)
-      size = 0
-      sum = md5.new()
-      while data:
-        sum.update(data)
-        size = size + len(data)
-        data = f.read(blocksize)
-        return (md5_to_hex(sum.digest()),size)
 
-# BUILD GENTOO CONTENTS ------------------------------------------------------
 
+
+CONTENTS_FILE="/var/db/contents.dict"
 CONTENTS={}
 PKGS={}
 
-# XXXXX
-# EXCLUDED_FILES should be a list []
+# a set of excluded files
+# EXCLUDED_FILES={'/usr/lib/python2*.pyc','/tmp/*','/dev/*','/proc/*','/var/db/pkg/*','/var/tmp/*','/var/cache/edb/*','/usr/src/linux-2.4*','/usr/portage/*','/photo/*','/music/*','/films/*','/didier/*'}
 
+MANIFESTFILE='{0}/files_to_backup'.format(tempdir)
 TOTAL_SIZE=0
-OUTPUT='/var/db/files_to_backup'
-SPECIAL_CHAR=['-','\\','|','/']
-SPECIAL_CHAR_POS=0
 
 
 
-# FROM OTHER PYTHON SCRIPT:
-#   ./backup.py [-h|--help] [-r] [-t] [-b <tgz>] [-d <dir>]
-#
-#   -h --help : this help
-#   -r : rebuild the whole indexes by scanning the /var/db/pkg files
-#   -t : compare files based on mtime only (skip md5sum)
-#   -b : build a tgz file. a-pkgs file will be created with the list of installed packages
-#   -d : point of start for the analyze. Should be '/'
-#
-# This tool compares files you have installed with files we can find in installed gentoo packages. This comparison is based on md5sum, but you can skip it with the '-t' option. The result is put in /var/db/contents.dict, /var/db/files_to_backup and /var/db/pkgs.dict.
-#
-# With the -b option, you can directly create all the files necessary to rebuild your prefered gentoo distro.
-# The <tgz> and <tgz>-pkgs files will allow you to rebuild the exact same enviroment.
-
-
-def output(data):
-    global SPECIAL_CHAR, SPECIAL_CHAR_POS
-    fid=open(OUTPUT,'a')
-    fid.write("%s\n" % data)
-    fid.close()
-    sys.stdout.write('Analyzing directories : ' + SPECIAL_CHAR[SPECIAL_CHAR_POS] + '\r')
-    sys.stdout.flush()
-    SPECIAL_CHAR_POS+=1
-    if SPECIAL_CHAR_POS==4: SPECIAL_CHAR_POS=0
-
-def file_to_exclude(file):
-    for excl in EXCLUDED_FILES:
-        if fnmatch.fnmatch(file,excl):
-            return 1
-    return 0
-
-def parse_dir(arg,dirname, files):
-    global TOTAL_SIZE
-    #if dir_to_exclude(dirname):
-    #    return
-    for file in files:
-       curfile=os.path.join(dirname,file)
-       if file_to_exclude(curfile):
-           continue
-       if os.path.isdir(curfile):
-           pass
-       elif os.path.islink(curfile):
-           if not CONTENTS.has_key(curfile):
-               output(curfile)
-       elif os.path.isfile(curfile):
-           size=os.path.getsize(curfile)
-           if not CONTENTS.has_key(curfile):
-               output(curfile)
-               TOTAL_SIZE += size
-           else:
-               if arg['test_on_time']:
-                   mtimereal=str(os.path.getmtime(curfile))
-                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
-                   if mtimereal not in mtimestored:
-                       output(curfile)
-                       TOTAL_SIZE += size
-               else:
-                   md5stored = [string.lower(res['chksum']) for res in CONTENTS[curfile]]
-                   md5real = string.lower(perform_checksum(curfile)[0])
-                   if (md5real not in md5stored):
-                       output(curfile)
-                       TOTAL_SIZE += size
-       else:
-           output(curfile)
-
-def analyze_dirs(dir,arg):
-    if len(CONTENTS)==0:
-        print("load CONTENTS first")
-        return
-    if dir[0]!="/":
-        print("Only full path names are accepted!!!!")
-        print("{0} is not valid".format(dir))
-        print("May be you've forget the leading '/'")
-        return
-    print("Analyzing your directories")
-    os.path.walk(dir,parse_dir,arg)
-    print("Analyze finished")
-    print("{0} bytes ".format(TOTAL_SIZE))
-
+# LOAD GENTOO CONTENTS -------------------------------------------------------
 
 def parse_contents(file):
     global CONTENTS,PKGS
@@ -356,31 +293,121 @@ def update_contents():
     print("{0} files indexed".format(len(CONTENTS)))
 
 def load_contents():
-    global CONTENTS
+    global CONTENTS,CONTENTS_FILE
     print("Loading your index")
-    fid=open('/var/db/contents.dict','r')
-    CONTENTS=cPickle.load(fid)
+    fid=open(CONTENTS_FILE,'r')
+    CONTENTS=pickle.load(fid)
     fid.close()
     print("Load finished")
     print("{0} files indexed".format(len(CONTENTS)))
 
+def save_contents():
+    global CONTENTS,CONTENTS_FILE
+    fid=open(CONTENTS_FILE,'w')
+    pickle.dump(CONTENTS,fid)
+    fid.close()
+
+# ANALYZE GENTOO CHANGES -----------------------------------------------------
+
+# perform_checksum(filename) returns the checksum.
+# copied from /usr/lib/portage/bin/archive-conf
+try:
+  import fchksum
+  def perform_checksum(filename): return fchksum.fmd5t(filename)
+except ImportError:
+  import md5
+  def md5_to_hex(md5sum):
+    hexform = ""
+    for ix in xrange(len(md5sum)):
+      hexform = hexform + "%02x" % ord(md5sum[ix])
+      return hexform.lower()
+
+    def perform_checksum(filename):
+      f = open(filename, 'rb')
+      blocksize=32768
+      data = f.read(blocksize)
+      size = 0
+      sum = md5.new()
+      while data:
+        sum.update(data)
+        size = size + len(data)
+        data = f.read(blocksize)
+        return (md5_to_hex(sum.digest()),size)
+
+# Write a data line to MANIFESTFILE (and update spinner visual)
+def output(data):
+    global MANIFESTFILE
+    fid=open(MANIFESTFILE,'a')
+    fid.write("%s\n" % data)
+    fid.close()
+    spin()
+
+def parse_dir(arg,dirname, files):
+    global TOTAL_SIZE, EXCLUDED_FILES
+    #if dir_to_exclude(dirname):
+    #    return
+    for file in files:
+       curfile=os.path.join(dirname,file)
+       if curfile in EXCLUDED_FILES:
+           continue
+       if os.path.isdir(curfile):
+           pass
+       elif os.path.islink(curfile):
+           if not CONTENTS.has_key(curfile):
+               output(curfile)
+       elif os.path.isfile(curfile):
+           size=os.path.getsize(curfile)
+           if not CONTENTS.has_key(curfile):
+               output(curfile)
+               TOTAL_SIZE += size
+           else:
+               if arg['test_on_time']:
+                   mtimereal=str(os.path.getmtime(curfile))
+                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
+                   if mtimereal not in mtimestored:
+                       output(curfile)
+                       TOTAL_SIZE += size
+               else:
+                   md5stored = [string.lower(res['chksum']) for res in CONTENTS[curfile]]
+                   md5real = string.lower(perform_checksum(curfile)[0])
+                   if (md5real not in md5stored):
+                       output(curfile)
+                       TOTAL_SIZE += size
+       else:
+           output(curfile)
+
+def analyze_dirs(dir):
+    if len(CONTENTS)==0:
+        print("load CONTENTS first")
+        return
+    if dir[0]!="/":
+        print("Only full path names are accepted!!!!")
+        print("{0} is not valid".format(dir))
+        print("May be you've forget the leading '/'")
+        return
+    print("Analyzing your directories")
+    os.walk(dir) # parse_dir
+    print("Analyze finished")
+    print("{0} bytes ".format(TOTAL_SIZE))
+
+
 def load_pkgs():
     global PKGS
     fid=open('/var/db/pkgs.dict','r')
-    PKGS=cPickle.load(fid)
+    PKGS=pickle.load(fid)
     fid.close()
 
 def save():
     global CONTENTS,PKGS
     fid=open('/var/db/contents.dict','w')
-    cPickle.dump(CONTENTS,fid)
+    pickle.dump(CONTENTS,fid)
     fid.close()
     fid=open('/var/db/pkgs.dict','w')
-    cPickle.dump(PKGS,fid)
+    pickle.dump(PKGS,fid)
     fid.close()
 
 def make_backup(tgz_file):
-    os.system('tar -czvf %s -T %s' % (tgz_file,OUTPUT))
+    os.system('tar -czvf %s -T %s' % (tgz_file,MANIFESTFILE))
     pkgs=PKGS.keys()
     pkgs.sort()
     fid=open('%s-pkgs' % tgz_file,'w')
@@ -389,26 +416,39 @@ def make_backup(tgz_file):
     fid.close()
 
 
+
 if __name__=="__main__":
     if len(sys.argv)>1:
-        arg={'test_on_time':None}
         if "-h" in sys.argv or "--help" in sys.argv:
             print(__usage__)
             exitcode()
         if "-r" in sys.argv:
             update_contents()
             save()
-        if "-t" in sys.argv:
-            arg={'test_on_time':1}
         if "-d" in sys.argv:
             if "-r" not in sys.argv: load_contents()
             try:
-                os.remove(OUTPUT)
+                os.remove(MANIFESTFILE)
             except OSError:
                 pass
             dir=sys.argv[sys.argv.index("-d")+1]
-            analyze_dirs(dir,arg)
+            analyze_dirs(dir)
         if "-b" in sys.argv:
             if "-r" not in sys.argv: load_pkgs()
             dir=sys.argv[sys.argv.index("-b")+1]
             make_backup(dir)
+
+
+# FROM OTHER PYTHON SCRIPT:
+#   ./backup.py [-h|--help] [-r] [-t] [-b <tgz>] [-d <dir>]
+#
+#   -h --help : this help
+#   -r : rebuild the whole indexes by scanning the /var/db/pkg files
+#   -t : compare files based on mtime only (skip md5sum)
+#   -b : build a tgz file. a-pkgs file will be created with the list of installed packages
+#   -d : point of start for the analyze. Should be '/'
+#
+# This tool compares files you have installed with files we can find in installed gentoo packages. This comparison is based on md5sum, but you can skip it with the '-t' option. The result is put in /var/db/contents.dict, /var/db/files_to_backup and /var/db/pkgs.dict.
+#
+# With the -b option, you can directly create all the files necessary to rebuild your prefered gentoo distro.
+# The <tgz> and <tgz>-pkgs files will allow you to rebuild the exact same enviroment.

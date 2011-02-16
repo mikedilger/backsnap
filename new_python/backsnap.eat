@@ -315,7 +315,7 @@ ${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
 COUNT=`/usr/bin/expr $COUNT + 1`
 if [ $REMOTEDST -ne 0 ] ; then
     ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.backsnap/count"
-else 
+else
     if [ x$TESTING = x ] ; then
         /bin/echo $COUNT > ${DSTPATH}/.backsnap/count
     fi

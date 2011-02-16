@@ -1,0 +1,105 @@
+#!/bin/env python3
+# -*- mode: python; -*-
+#
+# This program prints out all files which are not pristine gentoo portage
+# package owned.  That includes all user files, and all package files which
+# have been modified (such as config files).
+
+# TBD:  Pass an option with references an exludes file.  Then if any
+#       directory is in there, we don't bother to descend it.
+# TBD:  Option for the root (not necessarily "/")
+# TBD:  Option to just test timestamp
+# TBD:  Do we print directories too???
+
+import os.path,os
+import sys
+import string
+import fnmatch
+
+__version__=0.1
+
+from optparse import OptionParser
+parser = OptionParser(usage="usage: %prog [options]",
+                      version="%prog {0}".format(__version__),
+                      description="Prints all pristine gentoo portage files")
+parser.add_option("--excludes",action="store",dest="excludes",
+                  default=None,help="File containing list of dirs to skip")
+parser.add_option("--mtime",action="store_true",dest="mtime",
+                  default=False,help="Check mtime rather than md5 sum")
+parser.add_option("--verbose",action="store_true",dest="verbose",
+                  default=False,help="Verbose output (on stderr)")
+(options,args) = parser.parse_args()
+
+excludes=[]
+if options.excludes is not None:
+    excludes = open(options.excludes).read().splitlines()
+
+CONTENTS={} #  mapping from filename to a list of results, each being a dict
+PKGS={}
+
+for root, dirs, files in os.walk('/var/db/pkg/'):
+    for name in files:
+        if name=='CONTENTS':
+            contentsfile = os.path.join(root,name)
+            cfpn = contentsfile.split('/');
+            package=cfpn[-3] + "/" + cfpn[-2]
+            file_content=open(contentsfile).readlines()
+            for line in file_content:
+                content=line.split()
+                result={'pkg':package,'type':content[0]}
+                if content[0]=='obj':
+                    result['chksum']=content[2]
+                    result['mtime']=content[3]
+                if content[0]=='sym':
+                    result['link']=content[3]
+                #some files belongs to several packages
+                if content[1] in CONTENTS:
+                    CONTENTS[content[1]].append(result) # add to list
+                else:
+                    CONTENTS[content[1]]=[result] # single list
+                PKGS[package]=1
+
+import hashlib
+def perform_checksum(filename):
+  f = open(filename, 'rb')
+  blocksize=32768
+  data = f.read(blocksize)
+  size = 0
+  sum = hashlib.md5()
+  while data:
+    sum.update(data)
+    size = size + len(data)
+    data = f.read(blocksize)
+  return (sum.hexdigest().lower(),size)
+
+def parse_dir(dirname, dirs, files):
+    global options
+    if (options.verbose):
+        print("Parsing {0}...".format(dirname),file=sys.stderr)
+    for file in files:
+        curfile=os.path.join(dirname,file)
+        if curfile in CONTENTS:
+            if os.path.islink(curfile):
+               if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
+                   print('L ',curfile)
+            elif os.path.isfile(curfile):
+               if options.mtime:
+                   mtimereal=str(os.path.getmtime(curfile))
+                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
+                   if mtimereal not in mtimestored:
+                       print('M ',curfile)
+               else:
+                   md5stored = [res['chksum'] for res in CONTENTS[curfile]]
+                   md5real = perform_checksum(curfile)[0]
+                   if (md5real not in md5stored):
+                       print('M ',curfile)
+        else:
+            print('U ',curfile)
+
+for root, dirs, files in os.walk("/",topdown=True):
+    if root in excludes:
+        if (options.verbose):
+            print("Excluding {0}".format(root),file=sys.stderr)
+        del dirs[:] # Wipe out directories, it won't go any deeper
+    else:
+        parse_dir(root,dirs,files)
