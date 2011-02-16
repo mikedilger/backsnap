@@ -37,6 +37,9 @@ if options.excludes is not None:
 CONTENTS={} #  mapping from filename to a list of results, each being a dict
 PKGS={}
 
+size_portage=0;
+size_user=0;
+
 for root, dirs, files in os.walk('/var/db/pkg/'):
     for name in files:
         if name=='CONTENTS':
@@ -73,28 +76,49 @@ def perform_checksum(filename):
   return (sum.hexdigest().lower(),size)
 
 def parse_dir(dirname, dirs, files):
-    global options
+    global options,size_portage,size_user
     if (options.verbose):
         print("Parsing {0}...".format(dirname),file=sys.stderr)
+    for dir in dirs:
+        curdir=os.path.join(dirname,dir)
+        size=os.path.getsize(curdir)
+        if curdir in CONTENTS:
+            size_portage+=size
+        else:
+            size_user+=size
     for file in files:
         curfile=os.path.join(dirname,file)
+        try:
+            size=os.path.getsize(curfile)
+        except OSerror as err:
+            size=0
         if curfile in CONTENTS:
             if os.path.islink(curfile):
                if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
                    print('L ',curfile)
+                   size_user+=size
+               else:
+                   size_portage+=size
             elif os.path.isfile(curfile):
                if options.mtime:
                    mtimereal=str(os.path.getmtime(curfile))
                    mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
                    if mtimereal not in mtimestored:
                        print('M ',curfile)
+                       size_user+=size
+                   else:
+                       size_portage+=size
                else:
                    md5stored = [res['chksum'] for res in CONTENTS[curfile]]
                    md5real = perform_checksum(curfile)[0]
                    if (md5real not in md5stored):
                        print('M ',curfile)
+                       size_user+=size
+                   else:
+                       size_portage+=size
         else:
             print('U ',curfile)
+            size_user+=size
 
 for root, dirs, files in os.walk("/",topdown=True):
     if root in excludes:
@@ -103,3 +127,6 @@ for root, dirs, files in os.walk("/",topdown=True):
         del dirs[:] # Wipe out directories, it won't go any deeper
     else:
         parse_dir(root,dirs,files)
+
+if (options.verbose):
+    print("Portage={0} User={0}".format(size_portage,size_user))
