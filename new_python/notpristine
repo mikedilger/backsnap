@@ -89,7 +89,7 @@ def parse_dir(dirname, dirs, files):
                 size_user+=size
     for file in files:
         curfile=os.path.join(dirname,file)
-        if os.path.exists(curdir):
+        if os.path.exists(curfile):
             size=os.path.getsize(curfile)
         else:
             size=0
