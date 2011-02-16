@@ -130,4 +130,4 @@ for root, dirs, files in os.walk("/",topdown=True):
         parse_dir(root,dirs,files)
 
 if (options.verbose):
-    print("Portage={0} User={0}".format(size_portage,size_user))
+    print("Portage={0} User={1}".format(size_portage,size_user),file=sys.stderr)
