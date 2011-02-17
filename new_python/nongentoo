@@ -14,7 +14,7 @@ if sys.hexversion < 0x3010000:
     print("This program requires python 3.1 or greater")
     sys.exit(1)
 
-__version__=0.1
+__version__=0.2
 
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]",
@@ -209,7 +209,6 @@ def parse_dir(dirname, dirs, files):
 start=normalize_path(options.root + options.topdir)
 for thisdir, dirs, files in os.walk(start):
     rthisdir=r(thisdir)
-    print(thisdir,rthisdir,sep=" => ",file=sys.stderr)
     if rthisdir in excludes:
         del dirs[:] # Wipe out directories, it won't go any deeper
     elif (rthisdir not in CONTENTS) and (rthisdir != '/'): # Pure user
