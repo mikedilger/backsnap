@@ -41,6 +41,8 @@ excludes=[]
 if options.excludes is not None:
     excludes = open(options.excludes).read().splitlines()
 
+# Use integer times
+os.stat_float_times(False)
 
 why={'u':'', 'l':'', 's':'', 't':''}
 if options.why:
@@ -178,10 +180,10 @@ def parse_dir(dirname, dirs, files):
                    printL(why['l'],curfile)   # changed link
             elif os.path.isfile(curfile):
                if options.mtime:
-                   mtimereal=str(os.path.getmtime(curfile))
                    mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
+                   mtimereal=str(os.path.getmtime(curfile))
                    if mtimereal not in mtimestored:
-                       printL(why['t'],curfile)  # changed mtime
+                       printL(why['t'],curfile) # changed mtime
                else:
                    md5stored = [res['md5sum'] for res in CONTENTS[curfile]]
                    md5real = perform_checksum(curfile)[0]
