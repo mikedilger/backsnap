@@ -14,7 +14,7 @@ if sys.hexversion < 0x3010000:
     print("This program requires python 3.1 or greater")
     sys.exit(1)
 
-__version__=0.2
+__version__=0.2.1
 
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]",
@@ -190,7 +190,7 @@ def parse_dir(dirname, dirs, files):
         rcurfile=r(curfile)
         if rcurfile in CONTENTS:
             if os.path.islink(curfile):
-               if r(os.readlink(curfile)) not in [res['link'] for res in CONTENTS[rcurfile]]:
+               if os.readlink(curfile) not in [res['link'] for res in CONTENTS[rcurfile]]:
                    printL(why['l'],rcurfile)   # changed link
             elif os.path.isfile(curfile):
                if options.md5:
