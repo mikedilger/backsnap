@@ -14,7 +14,8 @@ if sys.hexversion < 0x3010000:
     print("This program requires python 3.1 or greater")
     sys.exit(1)
 
-__version__="0.2.2"
+__version__="0.3"
+# 0.3      added --descend option
 
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]",
@@ -22,7 +23,7 @@ parser = OptionParser(usage="usage: %prog [options]",
                       description="Prints all files and directories not "
                       "installed by gentoo portage, including any files that "
                       "were but have since been modified.  Directories are "
-                      "output with a trailing slash and not descended.")
+                      "output with a trailing slash if not descended.")
 parser.add_option("--excludes",action="store",dest="excludes",
                   default=None,help="File containing list of dirs to skip")
 parser.add_option("--md5",action="store_true",dest="md5",
@@ -37,7 +38,8 @@ parser.add_option("--root",action="store",dest="root",
 parser.add_option("--topdir",action="store",dest="topdir",
                   default="/",help="Analyze from this top directory "
                   "(this does not affect where it finds the package database)")
-
+parser.add_option("--descend",action="store_true",dest="descend",
+                  default=False,help="Descend user directories to print all files")
 (options,args) = parser.parse_args()
 
 excludes=[]
@@ -184,7 +186,8 @@ def parse_dir(dirname, dirs, files):
         curdir=os.path.join(dirname,dir)
         rcurdir=r(curdir)
         if (rcurdir not in excludes) and (rcurdir not in CONTENTS):
-            printL(why['u'],rcurdir,'/')   # User directory
+            if not options.descend:
+                printL(why['u'],rcurdir,'/')   # User directory
     for file in files:
         curfile=os.path.join(dirname,file)
         rcurfile=r(curfile)
@@ -210,9 +213,9 @@ start=normalize_path(options.root + options.topdir)
 for thisdir, dirs, files in os.walk(start):
     rthisdir=r(thisdir)
     if rthisdir in excludes:
-        del dirs[:] # Wipe out directories, it won't go any deeper
-    elif (rthisdir not in CONTENTS) and (rthisdir != '/'): # Pure user
-        del dirs[:] # Wipe out directories, it won't go any deeper
+        del dirs[:] # Don't descend excluded dirs
+    elif (rthisdir not in CONTENTS) and (rthisdir != '/') and not options.descend:
+        del dirs[:] # Don't descend user dirs
     else:
         parse_dir(thisdir,dirs,files)
     sys.stdout.flush()
