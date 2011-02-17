@@ -73,16 +73,11 @@ def normalize_path(mypath):
         path_sep = os.path.sep.encode()
     else:
         path_sep = os.path.sep
-    if mypath.startswith(path_sep):
-        # posixpath.normpath collapses 3 or more leading slashes to just 1.
-        mypath = os.path.normpath(2*path_sep + mypath)
-    else:
-        mypath = os.path.normpath(mypath)
-    if not mypath.startswith(path_sep):
-        return path_sep + mypath
-    else:
-        return mypath
-
+    mypath = os.path.normpath(mypath)
+    mypath = mypath.strip()
+    mypath = mypath.lstrip(path_sep)
+    mypath = path_sep + mypath
+    return mypath
 
 # CONTENTS file parsing:
 contents_re = re.compile(
@@ -94,9 +89,18 @@ contents_re = re.compile(
     r')$'
 )
 
+def r(path):
+    global options
+    # os.path.relpath() is not doing what we want, so we will do this
+    # ourselves
+    if not path.startswith(options.root):
+        raise AssertionError("path not within {0}".format(options.root))
+    # Remove options.root from the front and normalize
+    return normalize_path(path[len(options.root):])
+
 # Some of this code comes from /usr/lib/portage/pym/portage/dbapi/vartree.py
 # Some of this code comes from Vincent Delft <vincent_delft@yahoo.com>
-for root, dirs, files in os.walk(options.root + '/var/db/pkg/'):
+for root, dirs, files in os.walk(normalize_path(options.root + '/var/db/pkg/')):
     for name in files:
         if name=='CONTENTS':
             contentsfile = os.path.join(root,name)
@@ -175,36 +179,41 @@ def perform_checksum(filename):
 def parse_dir(dirname, dirs, files):
     global options
     if (options.verbose):
-        printL("Combing {0}...".format(dirname), file=sys.stderr)
+        printL("Combing {0}...".format(r(dirname)), file=sys.stderr)
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
-        if (curdir not in excludes) and (curdir not in CONTENTS):
-            printL(why['u'],curdir,'/')   # User directory
+        rcurdir=r(curdir)
+        if (rcurdir not in excludes) and (rcurdir not in CONTENTS):
+            printL(why['u'],rcurdir,'/')   # User directory
     for file in files:
         curfile=os.path.join(dirname,file)
-        if curfile in CONTENTS:
+        rcurfile=r(curfile)
+        if rcurfile in CONTENTS:
             if os.path.islink(curfile):
-               if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
-                   printL(why['l'],curfile)   # changed link
+               if r(os.readlink(curfile)) not in [res['link'] for res in CONTENTS[rcurfile]]:
+                   printL(why['l'],rcurfile)   # changed link
             elif os.path.isfile(curfile):
                if options.md5:
-                   md5stored = [res['md5sum'] for res in CONTENTS[curfile]]
+                   md5stored = [res['md5sum'] for res in CONTENTS[rcurfile]]
                    md5real = perform_checksum(curfile)[0]
                    if (md5real not in md5stored):
-                       printL(why['s'],curfile)   # changed sum
+                       printL(why['s'],rcurfile)   # changed sum
                else:
-                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
+                   mtimestored=[res['mtime'] for res in CONTENTS[rcurfile]]
                    mtimereal=str(os.path.getmtime(curfile))
                    if mtimereal not in mtimestored:
-                       printL(why['t'],curfile)   # changed mtime
+                       printL(why['t'],rcurfile)   # changed mtime
         else:
-            printL(why['u'],curfile)   # User file (not in contents)
+            printL(why['u'],rcurfile)   # User file (not in contents)
 
-for root, dirs, files in os.walk(options.root + options.topdir,topdown=True):
-    if root in excludes:
+start=normalize_path(options.root + options.topdir)
+for thisdir, dirs, files in os.walk(start):
+    rthisdir=r(thisdir)
+    print(thisdir,rthisdir,sep=" => ",file=sys.stderr)
+    if rthisdir in excludes:
         del dirs[:] # Wipe out directories, it won't go any deeper
-    elif (root not in CONTENTS) and (root != '/'): # Pure user directory
+    elif (rthisdir not in CONTENTS) and (rthisdir != '/'): # Pure user
         del dirs[:] # Wipe out directories, it won't go any deeper
     else:
-        parse_dir(root,dirs,files)
+        parse_dir(thisdir,dirs,files)
     sys.stdout.flush()
