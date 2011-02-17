@@ -32,10 +32,10 @@ parser.add_option("--why",action="store_true",dest="why",
 parser.add_option("--verbose",action="store_true",dest="verbose",
                   default=False,help="Verbose output (on stderr)")
 parser.add_option("--root",action="store",dest="root",
-                  default="",help="Analyze from a different root directory "
+                  default="/",help="Analyze from a different root directory "
                   "(this includes where it finds the package database)")
 parser.add_option("--topdir",action="store",dest="topdir",
-                  default="",help="Analyze from this top directory "
+                  default="/",help="Analyze from this top directory "
                   "(this does not affect where it finds the package database)")
 
 (options,args) = parser.parse_args()
@@ -66,13 +66,15 @@ def normalize_path(mypath):
     We dislike this behavior so we create our own normpath func
     to fix it.
     """
-    global normalize_needed
-    if normalize_needed.search(mypath) is None:
-        return mypath
     if sys.hexversion >= 0x3000000 and isinstance(mypath, bytes):
         path_sep = os.path.sep.encode()
     else:
         path_sep = os.path.sep
+    if len(mypath)==0:
+        return path_sep
+    global normalize_needed
+    if normalize_needed.search(mypath) is None:
+        return mypath
     mypath = os.path.normpath(mypath)
     mypath = mypath.strip()
     mypath = mypath.lstrip(path_sep)
@@ -91,8 +93,6 @@ contents_re = re.compile(
 
 def r(path):
     global options
-    # os.path.relpath() is not doing what we want, so we will do this
-    # ourselves
     if not path.startswith(options.root):
         raise AssertionError("path not within {0}".format(options.root))
     # Remove options.root from the front and normalize
