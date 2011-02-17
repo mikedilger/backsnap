@@ -66,16 +66,23 @@ def normalize_path(mypath):
     We dislike this behavior so we create our own normpath func
     to fix it.
     """
+    global normalize_needed
+    if normalize_needed.search(mypath) is None:
+        return mypath
     if sys.hexversion >= 0x3000000 and isinstance(mypath, bytes):
         path_sep = os.path.sep.encode()
     else:
         path_sep = os.path.sep
-
     if mypath.startswith(path_sep):
         # posixpath.normpath collapses 3 or more leading slashes to just 1.
-        return os.path.normpath(2*path_sep + mypath)
+        mypath = os.path.normpath(2*path_sep + mypath)
     else:
-        return os.path.normpath(mypath)
+        mypath = os.path.normpath(mypath)
+    if not mypath.startswith(path_sep):
+        return path_sep + mypath
+    else:
+        return mypath
+
 
 # CONTENTS file parsing:
 contents_re = re.compile(
@@ -122,11 +129,7 @@ for root, dirs, files in os.walk(options.root + '/var/db/pkg/'):
                     result['type'] = m.group(base+1);
                     result['mtime'] = m.group(base+5);
                     result['link'] = m.group(base+3);
-                path = m.group(base+2)
-                if normalize_needed.search(path) is not None:
-                    path = normalize_path(path)
-                    if not path.startswith(os.path.sep):
-                        path = os.path.sep + path
+                path = normalize_path(m.group(base+2))
                 # Store the result
                 if result['type'] not in CONTENTS:
                     CONTENTS[path]=[result] # single list
