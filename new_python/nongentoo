@@ -35,7 +35,7 @@ parser.add_option("--root",action="store",dest="root",
                   default="",help="Analyze from a different root directory "
                   "(this includes where it finds the package database)")
 parser.add_option("--topdir",action="store",dest="topdir",
-                  default="/",help="Analyze from this top directory "
+                  default="",help="Analyze from this top directory "
                   "(this does not affect where it finds the package database)")
 
 (options,args) = parser.parse_args()
