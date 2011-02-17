@@ -15,6 +15,7 @@ import os.path,os
 import sys
 import string
 import fnmatch
+import codecs
 
 __version__=0.1
 
@@ -62,6 +63,28 @@ for root, dirs, files in os.walk('/var/db/pkg/'):
                     CONTENTS[content[1]]=[result] # single list
                 PKGS[package]=1
 
+# Starting in Python 3.1, filenames with a bad encoding save the bad bytes
+# as unicode surrogate code points at U+DCxx.  If you try to print these,
+# you get a UnicdoeEncodeError.  recordAsLatin() reinterprets them as
+# latin_1 (iso-8859-1), recoding the surrogates to equivalent latin_1
+# points.
+def recodeAsLatin(s):
+    # Undo the incorrect bytestring decode, saving surrogates
+    b = s.encode(sys.getfilesystemencoding(),'surrogateescape')
+    # Re-decode, this type trying latin_1
+    return b.decode('latin_1')
+
+# This printing function uses the above
+def printL(*f,sep='',end='\n',file=sys.stdout):
+    newf = []  # Remake *f, translating bad strings into latin
+    for fx in f:
+        try:
+            ignore = fx.encode(sys.getfilesystemencoding(),'strict')
+            newf.append(fx)
+        except UnicodeError as err:
+            newf.append(recodeAsLatin(fx))
+    print(*newf,sep=sep,end=end,file=file)
+
 import hashlib
 def perform_checksum(filename):
   f = open(filename, 'rb')
@@ -78,7 +101,8 @@ def perform_checksum(filename):
 def parse_dir(dirname, dirs, files):
     global options,size_portage,size_user
     if (options.verbose):
-        print("Parsing {0}...".format(dirname),file=sys.stderr)
+        printL("Parsing {0}...".format(dirname),
+              file=sys.stderr)
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
         if os.path.exists(curdir):
@@ -96,7 +120,7 @@ def parse_dir(dirname, dirs, files):
         if curfile in CONTENTS:
             if os.path.islink(curfile):
                if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
-                   print('L ',curfile)
+                   printL('L ',curfile)
                    size_user+=size
                else:
                    size_portage+=size
@@ -105,7 +129,7 @@ def parse_dir(dirname, dirs, files):
                    mtimereal=str(os.path.getmtime(curfile))
                    mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
                    if mtimereal not in mtimestored:
-                       print('M ',curfile)
+                       printL('M ',curfile)
                        size_user+=size
                    else:
                        size_portage+=size
@@ -113,21 +137,22 @@ def parse_dir(dirname, dirs, files):
                    md5stored = [res['chksum'] for res in CONTENTS[curfile]]
                    md5real = perform_checksum(curfile)[0]
                    if (md5real not in md5stored):
-                       print('M ',curfile)
+                       printL('M ',curfile)
                        size_user+=size
                    else:
                        size_portage+=size
         else:
-            print('U ',curfile)
+            printL('U ',curfile)
             size_user+=size
 
 for root, dirs, files in os.walk("/",topdown=True):
     if root in excludes:
         if (options.verbose):
-            print("Excluding {0}".format(root),file=sys.stderr)
+            printL("Excluding {0}".format(root),
+                  file=sys.stderr)
         del dirs[:] # Wipe out directories, it won't go any deeper
     else:
         parse_dir(root,dirs,files)
 
 if (options.verbose):
-    print("Portage={0} User={1}".format(size_portage,size_user),file=sys.stderr)
+    printL("Portage={0} User={1}".format(size_portage,size_user),file=sys.stderr)
