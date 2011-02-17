@@ -31,6 +31,8 @@ parser.add_option("--excludes",action="store",dest="excludes",
                   default=None,help="File containing list of dirs to skip")
 parser.add_option("--mtime",action="store_true",dest="mtime",
                   default=False,help="Check mtime rather than md5 sum")
+parser.add_option("--why",action="store_true",dest="why",
+                  default=False,help="Prefix filenames with reason")
 parser.add_option("--verbose",action="store_true",dest="verbose",
                   default=False,help="Verbose output (on stderr)")
 (options,args) = parser.parse_args()
@@ -39,10 +41,13 @@ excludes=[]
 if options.excludes is not None:
     excludes = open(options.excludes).read().splitlines()
 
+
+why={'u':'', 'l':'', 's':'', 't':''}
+if options.why:
+    why={'u':'u ', 'l':'l ', 's':'s ', 't':'t '}
+
 CONTENTS={} #  mapping from filename to a list of results, each being a dict
 PKGS={}
-
-size_portage=0;
 
 def normalize_path(mypath):
     """
@@ -158,57 +163,37 @@ def perform_checksum(filename):
   return (sum.hexdigest().lower(),size)
 
 def parse_dir(dirname, dirs, files):
-    global options,size_portage
+    global options
     if (options.verbose):
         printL("Combing {0}...".format(dirname), file=sys.stderr)
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
-        if os.path.exists(curdir):
-            if curdir in excludes:
-                printL('X ',curdir,'/')   # Excluded directory
-            else:
-                size=os.path.getsize(curdir)
-                if curdir in CONTENTS:
-                    size_portage+=size
-                else:
-                    printL('U ',curdir,'/')   # User directory
+        if (curdir not in excludes) and (curdir not in CONTENTS):
+            printL(why['u'],curdir,'/')   # User directory
     for file in files:
         curfile=os.path.join(dirname,file)
-        if os.path.exists(curfile):
-            size=os.path.getsize(curfile)
-        else:
-            size=0
         if curfile in CONTENTS:
             if os.path.islink(curfile):
                if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
-                   printL('ΔL ',curfile)   # changed link
-               else:
-                   size_portage+=size
+                   printL(why['l'],curfile)   # changed link
             elif os.path.isfile(curfile):
                if options.mtime:
                    mtimereal=str(os.path.getmtime(curfile))
                    mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
                    if mtimereal not in mtimestored:
-                       printL('ΔT ',curfile)  # changed mtime
-                   else:
-                       size_portage+=size
+                       printL(why['t'],curfile)  # changed mtime
                else:
                    md5stored = [res['md5sum'] for res in CONTENTS[curfile]]
                    md5real = perform_checksum(curfile)[0]
                    if (md5real not in md5stored):
-                       printL('ΔS ',curfile)   # changed sum
-                   else:
-                       size_portage+=size
+                       printL(why['s'],curfile)   # changed sum
         else:
-            printL('U ',curfile)   # User file (not in contents)
+            printL(why['u'],curfile)   # User file (not in contents)
 
 for root, dirs, files in os.walk("/",topdown=True):
     if root in excludes:
-        if (options.verbose):
-            printL("Excluding {0}".format(root), file=sys.stderr)
         del dirs[:] # Wipe out directories, it won't go any deeper
     elif (root not in CONTENTS) and (root != '/'): # Pure user directory
-        printL('U ',root,'/')
         del dirs[:] # Wipe out directories, it won't go any deeper
     else:
         parse_dir(root,dirs,files)
