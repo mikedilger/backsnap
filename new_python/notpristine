@@ -4,6 +4,9 @@
 # This program prints out all files which are not pristine gentoo portage
 # package owned.  That includes all user files, and all package files which
 # have been modified (such as config files).
+#
+# We presume python 3
+# We presume utf_8 encoding
 
 # TBD:  Pass an option with references an exludes file.  Then if any
 #       directory is in there, we don't bother to descend it.
@@ -16,6 +19,7 @@ import sys
 import string
 import fnmatch
 import codecs
+import re
 
 __version__=0.1
 
@@ -39,28 +43,83 @@ CONTENTS={} #  mapping from filename to a list of results, each being a dict
 PKGS={}
 
 size_portage=0;
-size_user=0;
 
+def normalize_path(mypath):
+    """
+    os.path.normpath("//foo") returns "//foo" instead of "/foo"
+    We dislike this behavior so we create our own normpath func
+    to fix it.
+    """
+    if sys.hexversion >= 0x3000000 and isinstance(mypath, bytes):
+        path_sep = os.path.sep.encode()
+    else:
+        path_sep = os.path.sep
+
+    if mypath.startswith(path_sep):
+        # posixpath.normpath collapses 3 or more leading slashes to just 1.
+        return os.path.normpath(2*path_sep + mypath)
+    else:
+        return os.path.normpath(mypath)
+
+# If a filename matches this, it ought to be normalized
+normalize_needed = re.compile(r'//|^[^/]|./$|(^|/)\.\.?(/|$)')
+
+# CONTENTS file parsing:
+contents_re = re.compile(
+    r'^(' + \
+    r'(?P<dir>(dev|dir|fif) (.+))|' + \
+    r'(?P<obj>(obj) (.+) (\S+) (\d+))|' + \
+    r'(?P<sym>(sym) (.+) -> (.+) ((\d+)|(?P<oldsym>(' + \
+    r'\(\d+, \d+L, \d+L, \d+, \d+, \d+, \d+L, \d+, (\d+), \d+\)))))' + \
+    r')$'
+)
+
+
+# Some of this code comes from /usr/lib/portage/pym/portage/dbapi/vartree.py
+# Some of this code comes from Vincent Delft <vincent_delft@yahoo.com>
 for root, dirs, files in os.walk('/var/db/pkg/'):
     for name in files:
         if name=='CONTENTS':
             contentsfile = os.path.join(root,name)
             cfpn = contentsfile.split('/');
             package=cfpn[-3] + "/" + cfpn[-2]
-            file_content=open(contentsfile).readlines()
-            for line in file_content:
-                content=line.split()
-                result={'pkg':package,'type':content[0]}
-                if content[0]=='obj':
-                    result['chksum']=content[2]
-                    result['mtime']=content[3]
-                if content[0]=='sym':
-                    result['link']=content[3]
-                #some files belongs to several packages
-                if content[1] in CONTENTS:
-                    CONTENTS[content[1]].append(result) # add to list
-                else:
-                    CONTENTS[content[1]]=[result] # single list
+            mylines=open(contentsfile).readlines()
+            null_byte = "\0"
+            obj_index = contents_re.groupindex['obj']
+            dir_index = contents_re.groupindex['dir']
+            sym_index = contents_re.groupindex['sym']
+            pos = 0
+            for pos, line in enumerate(mylines):
+                if null_byte in line:
+                    raise ValueError('Null byte found in a CONTENTS file')
+                line = line.rstrip("\n")
+                m = contents_re.match(line)
+                if m is None:
+                    raise ValueError('Unparsable line in a CONTENTS file')
+                result={'pkg':package} # 'type'
+                if m.group(obj_index) is not None:
+                    base = obj_index
+                    result['type'] = m.group(base+1);
+                    result['md5sum'] = m.group(base+3);
+                    result['mtime'] = m.group(base+4);
+                elif m.group(dir_index) is not None:
+                    base = dir_index
+                    result['type'] = m.group(base+1);
+                elif m.group(sym_index) is not None:
+                    base = sym_index
+                    result['type'] = m.group(base+1);
+                    result['mtime'] = m.group(base+5);
+                    result['link'] = m.group(base+3);
+                path = m.group(base+2)
+                if normalize_needed.search(path) is not None:
+                    path = normalize_path(path)
+                    if not path.startswith(os.path.sep):
+                        path = os.path.sep + path
+                # Store the result
+                if result['type'] not in CONTENTS:
+                    CONTENTS[path]=[result] # single list
+                else: #some files belongs to several packages
+                    CONTENTS[path].append(result) # add to list
                 PKGS[package]=1
 
 # Starting in Python 3.1, filenames with a bad encoding save the bad bytes
@@ -99,10 +158,9 @@ def perform_checksum(filename):
   return (sum.hexdigest().lower(),size)
 
 def parse_dir(dirname, dirs, files):
-    global options,size_portage,size_user
+    global options,size_portage
     if (options.verbose):
-        printL("Parsing {0}...".format(dirname),
-              file=sys.stderr)
+        printL("Parsing {0}...".format(dirname), file=sys.stderr)
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
         if os.path.exists(curdir):
@@ -110,7 +168,7 @@ def parse_dir(dirname, dirs, files):
             if curdir in CONTENTS:
                 size_portage+=size
             else:
-                size_user+=size
+                printL('U ',curdir,'/')   # User directory
     for file in files:
         curfile=os.path.join(dirname,file)
         if os.path.exists(curfile):
@@ -120,8 +178,7 @@ def parse_dir(dirname, dirs, files):
         if curfile in CONTENTS:
             if os.path.islink(curfile):
                if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
-                   printL('L ',curfile)
-                   size_user+=size
+                   printL('ΔL ',curfile)   # changed link
                else:
                    size_portage+=size
             elif os.path.isfile(curfile):
@@ -129,30 +186,28 @@ def parse_dir(dirname, dirs, files):
                    mtimereal=str(os.path.getmtime(curfile))
                    mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
                    if mtimereal not in mtimestored:
-                       printL('M ',curfile)
-                       size_user+=size
+                       printL('ΔT ',curfile)  # changed mtime
                    else:
                        size_portage+=size
                else:
-                   md5stored = [res['chksum'] for res in CONTENTS[curfile]]
+                   md5stored = [res['md5sum'] for res in CONTENTS[curfile]]
                    md5real = perform_checksum(curfile)[0]
                    if (md5real not in md5stored):
-                       printL('M ',curfile)
-                       size_user+=size
+                       printL('ΔS ',curfile)   # changed sum
                    else:
                        size_portage+=size
         else:
-            printL('U ',curfile)
-            size_user+=size
+            printL('U ',curfile)   # User file (not in contents)
 
 for root, dirs, files in os.walk("/",topdown=True):
+
     if root in excludes:
         if (options.verbose):
-            printL("Excluding {0}".format(root),
-                  file=sys.stderr)
+            printL("Excluding {0}".format(root), file=sys.stderr)
+        del dirs[:] # Wipe out directories, it won't go any deeper
+    elif (root not in CONTENTS) and (root != '/'): # Pure user directory
+        printL('U ',root,'/')
         del dirs[:] # Wipe out directories, it won't go any deeper
     else:
         parse_dir(root,dirs,files)
-
-if (options.verbose):
-    printL("Portage={0} User={1}".format(size_portage,size_user),file=sys.stderr)
+    sys.stdout.flush()
