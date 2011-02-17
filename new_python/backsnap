@@ -11,7 +11,7 @@ excludes file:
                                one path per line.
 
 Backsnap will create and manage other files in this directory you can
-safely ignore (e.g. count and index).
+safely ignore (e.g. count, filelist).
 
 Backups at the destination will be in directories named LEVELn/
 where n is the level.  These level numbers do NOT represent time order,
@@ -39,8 +39,8 @@ Features:
   all of the files (for this reason, keeping 8 levels of backup doesn't take
   8x of the original space, in practice it is closer to 2x)
 * Supports both push and pull architectures
-* Is portage-aware, skipping system files which have not been altered
-  from the package default
+* Is portage-aware, optionally skipping system files which have not been
+  altered from the package default
 * Backups are fully functional filesystems, so they are mountable (read-only
   please) and recovery is a cinch.  (If we compressed them we wouldn't save
   space because we'd lose the hardlink savings)
@@ -64,7 +64,7 @@ Examples:
 """
 
 CREDITS="""by Michael Dilger <mike@mikedilger.com>
-  gentoo package file checking code from
+  nongentoo checking code originally from:
     Vincent Delft <vincent_delft@yahoo.com>
   rsync backup ideas taken from:
     http://www.mikerubel.org/computers/rsync_snapshots/
@@ -75,7 +75,7 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 
 AUTHOR="Michael Dilger"
 VERSION="0.4"
-LAST_MODIFICATION="15 February 2011"
+LAST_MODIFICATION="18 February 2011"
 
 # IMPORTS --------------------------------------------------------------------
 
@@ -92,22 +92,18 @@ import signal
 # EXIT HANDLER AND TRAP SIGNALS ----------------------------------------------
 
 ONEXIT=[]
-def exitcode():
+def myexitcode(*args):
   global ONEXIT
   for code in ONEXIT:
     exec(code)
   sys.exit(1)
 
-for i in [x for x in dir(signal) if x.startswith("SIG")]:
-  try:
-    #print(i)
-    signum = getattr(signal,i)
-    signal.signal(signum,exitcode)
-  except RuntimeError as m:
-    #print("Notice: Not trapping signal {0}".format(i))
-    pass
-  except ValueError:
-    pass
+signal.signal(signal.SIGSEGV,myexitcode)
+signal.signal(signal.SIGINT,myexitcode)
+signal.signal(signal.SIGABRT,myexitcode)
+signal.signal(signal.SIGHUP,myexitcode)
+signal.signal(signal.SIGQUIT,myexitcode)
+signal.signal(signal.SIGTERM,myexitcode)
 
 # e.g.
   #ONEXIT.append('''# remove temp dir
@@ -121,17 +117,25 @@ def print_manual(option,opt,value,parser):
   global MANUAL
   parser.print_help()
   print(MANUAL)
-  exitcode()
+  myexitcode()
 
 def print_credits(option,opt,value,parser):
   global CREDITS
   print(CREDITS)
-  exitcode()
+  myexitcode()
 
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options] <dest> <src> [<src> ...]",
                       version="%prog {0}".format(VERSION),
-                      description="Backsnap (backup snapshot) backs up directories, manages multiple backup levels, works over the network, and skips system files.   You must specify a <dest> path and at least one <src> path.  Either <dest> or <src> (but not both) may be a remote path in the form <hostname>:<path>, in which case ssh is used.   If <src> is in this form, all <src> arguments must use the same hostname.")
+                      description="Backsnap (backup snapshot) backs up "
+                      "directories, manages multiple backup levels, works "
+                      "over the network, and optionally skips system files.  "
+                      "You must specify a <dest> path and "
+                      "at least one <src> path.  "
+                      "Either <dest> or <src> (but not both) may be a remote "
+                      "path in the form <hostname>:<path>, in which case ssh "
+                      "is used.   If <src> is in this form, all <src> "
+                      "arguments must use the same hostname.")
 
 parser.add_option("--manual",
                   action="callback", callback=print_manual,
@@ -157,11 +161,11 @@ parser.add_option("--mtimeonly",
                   default=False,
                   help="Compare system files based on mtime only (skip md5) "
                   "[default: %default]")
-parser.add_option("--incsystem",
+parser.add_option("--skipsystem",
                   action="store_true",
-                  dest="incsystem",
+                  dest="skipsystem",
                   default=False,
-                  help="Include all system files in the backup "
+                  help="Skip all unmodified system files in the backup "
                   "[default: %default]")
 parser.add_option("--maxbackups",
                   action="store",
@@ -175,11 +179,23 @@ parser.add_option("--credits",
                   help="Print credits")
 
 (options, SRC) = parser.parse_args()
+
+if len(SRC)<1:
+  print("Error: You must specify a <dest> and at least one <src>")
+  parser.print_help()
+  myexitcode()
+
+if len(SRC)<2:
+  print("Error: You must specify at least one source path")
+  parser.print_help()
+  myexitcode()
+
 DEST=SRC[0]
 del SRC[0:1]
 
-print("DEBUG dest = {0}".format(DEST))
-print("DEBUG src = {0}".format(SRC))
+
+print("  DEBUG dest = {0}".format(DEST))
+print("  DEBUG src = {0}".format(SRC))
 
 # Spinner function -----------------------------------------------------------
 
@@ -196,7 +212,7 @@ def spin():
 
 #if os.geteuid()!=0:
 #  print("backsnap will only run as root.")
-#  exitcode()
+#  myexitcode()
 
 # TEMP DIR -------------------------------------------------------------------
 
@@ -217,122 +233,51 @@ shutil.rmtree(globals()["tempdir"])
 
 import re
 direction="local"
-hostmatchprog = re.compile(r"^[^/]+:")
+hostmatchprog = re.compile(r"^([^/]+):(.+)")
 testdest = hostmatchprog.match(DEST)
-if testdest is None:
-  testsrc = hostmatchprog.match(SRC[0])
-  if testsrc is None:
-    direction="local"
+testsrc = hostmatchprog.match(SRC[0])
+if testdest is not None:
+  if testsrc is not None:
+    print("Error: <dest> and <src> cannot both be remote")
+    parser.print_help()
+    myexitcode()
   else:
-    direction="pull"
+    direction="push"
+    desthost = testdest.groups()[0]
+    destpath = testdest.groups()[1]
+    # Create a command to get to the host:p
+    destaccess="/usr/bin/ssh {0}".format(desthost)
+    print("  debug: destaccess='{0}'".format(destaccess))
 else:
-  direction="push"
+  if testsrc is not None:
+    direction="pull"
+    for s in SRC:
+      ts = hostmatchprog.match(s)
+      if ts.groups()[0] != testsrc.groups()[0]:
+        print("Error: All remote <src> must be the same host")
+        parser.print_help()
+        myexitcode()
+  else:
+    direction="local"
 
-print("DEBUG: direction = {0}".format(direction))
-
-# DEBUG EXIT EARLY -----------------------------------------------------------
-
-print("Debugging: this script bailing out early.")
-exitcode()
+print("  DEBUG: direction = {0}".format(direction))
 
 # FETCH CONFIGURATION --------------------------------------------------------
 
+import subprocess
+if direction=="push":  # Deal with remote excludes file
+  p = subprocess.Popen(['/usr/bin/ionice','-c','3',
+                        '/usr/bin/scp',
+                        "{0}:{1}/.backsnap/excludes".format(desthost,destpath),
+                        tempdir])
+  sts = os.waitpid(p.pid,0)[1]
 
-indstisset = 0
-indst = ""
-insrclist = ""
+# DEBUG EXIT EARLY -----------------------------------------------------------
 
-
-
-
-
-
-CONTENTS_FILE="/var/db/contents.dict"
-CONTENTS={}
-PKGS={}
-
-# a set of excluded files
-# EXCLUDED_FILES={'/usr/lib/python2*.pyc','/tmp/*','/dev/*','/proc/*','/var/db/pkg/*','/var/tmp/*','/var/cache/edb/*','/usr/src/linux-2.4*','/usr/portage/*','/photo/*','/music/*','/films/*','/didier/*'}
+print("  Debug: this script bailing out early.")
+myexitcode()
 
 MANIFESTFILE='{0}/files_to_backup'.format(tempdir)
-TOTAL_SIZE=0
-
-
-
-# LOAD GENTOO CONTENTS -------------------------------------------------------
-
-def parse_contents(file):
-    global CONTENTS,PKGS
-    package=file.split('/')[-2]
-    file_content=open(file).readlines()
-    for line in file_content:
-        content=line.split()
-        result={'pkg':package,'type':content[0]}
-        if content[0]=='obj':
-            result['chksum']=content[2]
-            result['mtime']=content[3]
-        if content[0]=='sym':
-            result['link']=content[3]
-        #some files belongs to several packages
-        if CONTENTS.has_key(content[1]):
-            CONTENTS[content[1]].append(result)
-        else:
-            CONTENTS[content[1]]=[result]
-        PKGS[package]=1
-
-def analyze_pkg(arg,dirname,files):
-    for file in files:
-        if file=='CONTENTS':
-            print("."),
-            parse_contents(os.path.join(dirname,file))
-
-def update_contents():
-    print("Analyzing your packages")
-    os.path.walk('/var/db/pkg/',analyze_pkg,'')
-    print("Analyze finished")
-    print("{0} files indexed".format(len(CONTENTS)))
-
-def load_contents():
-    global CONTENTS,CONTENTS_FILE
-    print("Loading your index")
-    fid=open(CONTENTS_FILE,'r')
-    CONTENTS=pickle.load(fid)
-    fid.close()
-    print("Load finished")
-    print("{0} files indexed".format(len(CONTENTS)))
-
-def save_contents():
-    global CONTENTS,CONTENTS_FILE
-    fid=open(CONTENTS_FILE,'w')
-    pickle.dump(CONTENTS,fid)
-    fid.close()
-
-# ANALYZE GENTOO CHANGES -----------------------------------------------------
-
-# perform_checksum(filename) returns the checksum.
-# copied from /usr/lib/portage/bin/archive-conf
-try:
-  import fchksum
-  def perform_checksum(filename): return fchksum.fmd5t(filename)
-except ImportError:
-  import md5
-  def md5_to_hex(md5sum):
-    hexform = ""
-    for ix in xrange(len(md5sum)):
-      hexform = hexform + "%02x" % ord(md5sum[ix])
-      return hexform.lower()
-
-    def perform_checksum(filename):
-      f = open(filename, 'rb')
-      blocksize=32768
-      data = f.read(blocksize)
-      size = 0
-      sum = md5.new()
-      while data:
-        sum.update(data)
-        size = size + len(data)
-        data = f.read(blocksize)
-        return (md5_to_hex(sum.digest()),size)
 
 # Write a data line to MANIFESTFILE (and update spinner visual)
 def output(data):
@@ -342,113 +287,11 @@ def output(data):
     fid.close()
     spin()
 
-def parse_dir(arg,dirname, files):
-    global TOTAL_SIZE, EXCLUDED_FILES
-    #if dir_to_exclude(dirname):
-    #    return
-    for file in files:
-       curfile=os.path.join(dirname,file)
-       if curfile in EXCLUDED_FILES:
-           continue
-       if os.path.isdir(curfile):
-           pass
-       elif os.path.islink(curfile):
-           if not CONTENTS.has_key(curfile):
-               output(curfile)
-       elif os.path.isfile(curfile):
-           size=os.path.getsize(curfile)
-           if not CONTENTS.has_key(curfile):
-               output(curfile)
-               TOTAL_SIZE += size
-           else:
-               if arg['test_on_time']:
-                   mtimereal=str(os.path.getmtime(curfile))
-                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
-                   if mtimereal not in mtimestored:
-                       output(curfile)
-                       TOTAL_SIZE += size
-               else:
-                   md5stored = [string.lower(res['chksum']) for res in CONTENTS[curfile]]
-                   md5real = string.lower(perform_checksum(curfile)[0])
-                   if (md5real not in md5stored):
-                       output(curfile)
-                       TOTAL_SIZE += size
-       else:
-           output(curfile)
-
-def analyze_dirs(dir):
-    if len(CONTENTS)==0:
-        print("load CONTENTS first")
-        return
-    if dir[0]!="/":
-        print("Only full path names are accepted!!!!")
-        print("{0} is not valid".format(dir))
-        print("May be you've forget the leading '/'")
-        return
-    print("Analyzing your directories")
-    os.walk(dir) # parse_dir
-    print("Analyze finished")
-    print("{0} bytes ".format(TOTAL_SIZE))
-
-
-def load_pkgs():
-    global PKGS
-    fid=open('/var/db/pkgs.dict','r')
-    PKGS=pickle.load(fid)
-    fid.close()
-
-def save():
-    global CONTENTS,PKGS
-    fid=open('/var/db/contents.dict','w')
-    pickle.dump(CONTENTS,fid)
-    fid.close()
-    fid=open('/var/db/pkgs.dict','w')
-    pickle.dump(PKGS,fid)
-    fid.close()
-
-def make_backup(tgz_file):
-    os.system('tar -czvf %s -T %s' % (tgz_file,MANIFESTFILE))
-    pkgs=PKGS.keys()
-    pkgs.sort()
-    fid=open('%s-pkgs' % tgz_file,'w')
-    for pkg in pkgs:
-       fid.write('%s\n' % pkg)
-    fid.close()
-
-
-
-if __name__=="__main__":
-    if len(sys.argv)>1:
-        if "-h" in sys.argv or "--help" in sys.argv:
-            print(__usage__)
-            exitcode()
-        if "-r" in sys.argv:
-            update_contents()
-            save()
-        if "-d" in sys.argv:
-            if "-r" not in sys.argv: load_contents()
-            try:
-                os.remove(MANIFESTFILE)
-            except OSError:
-                pass
-            dir=sys.argv[sys.argv.index("-d")+1]
-            analyze_dirs(dir)
-        if "-b" in sys.argv:
-            if "-r" not in sys.argv: load_pkgs()
-            dir=sys.argv[sys.argv.index("-b")+1]
-            make_backup(dir)
-
-
-# FROM OTHER PYTHON SCRIPT:
-#   ./backup.py [-h|--help] [-r] [-t] [-b <tgz>] [-d <dir>]
+#fid=open('/var/db/pkgs.dict','w')
+#pickle.dump(PKGS,fid)
+#fid.close()
 #
-#   -h --help : this help
-#   -r : rebuild the whole indexes by scanning the /var/db/pkg files
-#   -t : compare files based on mtime only (skip md5sum)
-#   -b : build a tgz file. a-pkgs file will be created with the list of installed packages
-#   -d : point of start for the analyze. Should be '/'
-#
-# This tool compares files you have installed with files we can find in installed gentoo packages. This comparison is based on md5sum, but you can skip it with the '-t' option. The result is put in /var/db/contents.dict, /var/db/files_to_backup and /var/db/pkgs.dict.
-#
-# With the -b option, you can directly create all the files necessary to rebuild your prefered gentoo distro.
-# The <tgz> and <tgz>-pkgs files will allow you to rebuild the exact same enviroment.
+#fid=open('/var/db/pkgs.dict','r')
+#PKGS=pickle.load(fid)
+#fid.close()
+
