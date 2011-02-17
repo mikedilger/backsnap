@@ -5,21 +5,14 @@
 # package owned.  That includes all user files, and all package files which
 # have been modified (such as config files).
 #
-# We presume python 3
-# We presume utf_8 encoding
+# We presume python 3.1 or greater
+# We presume utf_8 encoding (portage and python both currently use it as
+#   default or possibly even required encoding in some cases)
 
-# TBD:  Pass an option with references an exludes file.  Then if any
-#       directory is in there, we don't bother to descend it.
-# TBD:  Option for the root (not necessarily "/")
-# TBD:  Option to just test timestamp
-# TBD:  Do we print directories too???
-
-import os.path,os
 import sys
-import string
-import fnmatch
-import codecs
-import re
+if sys.hexversion < 0x3010000:
+    print("This program requires python 3.1 or greater")
+    sys.exit(1)
 
 __version__=0.1
 
@@ -38,6 +31,13 @@ parser.add_option("--why",action="store_true",dest="why",
                   default=False,help="Prefix filenames with reason")
 parser.add_option("--verbose",action="store_true",dest="verbose",
                   default=False,help="Verbose output (on stderr)")
+parser.add_option("--root",action="store",dest="root",
+                  default="",help="Analyze from a different root directory "
+                  "(this includes where it finds the package database)")
+parser.add_option("--topdir",action="store",dest="topdir",
+                  default="/",help="Analyze from this top directory "
+                  "(this does not affect where it finds the package database)")
+
 (options,args) = parser.parse_args()
 
 excludes=[]
@@ -45,6 +45,7 @@ if options.excludes is not None:
     excludes = open(options.excludes).read().splitlines()
 
 # Use integer times
+import os
 os.stat_float_times(False)
 
 why={'u':'', 'l':'', 's':'', 't':''}
@@ -53,6 +54,11 @@ if options.why:
 
 CONTENTS={} #  mapping from filename to a list of results, each being a dict
 PKGS={}
+
+import re
+
+# If a filename matches this, it ought to be normalized
+normalize_needed = re.compile(r'//|^[^/]|./$|(^|/)\.\.?(/|$)')
 
 def normalize_path(mypath):
     """
@@ -71,9 +77,6 @@ def normalize_path(mypath):
     else:
         return os.path.normpath(mypath)
 
-# If a filename matches this, it ought to be normalized
-normalize_needed = re.compile(r'//|^[^/]|./$|(^|/)\.\.?(/|$)')
-
 # CONTENTS file parsing:
 contents_re = re.compile(
     r'^(' + \
@@ -84,10 +87,9 @@ contents_re = re.compile(
     r')$'
 )
 
-
 # Some of this code comes from /usr/lib/portage/pym/portage/dbapi/vartree.py
 # Some of this code comes from Vincent Delft <vincent_delft@yahoo.com>
-for root, dirs, files in os.walk('/var/db/pkg/'):
+for root, dirs, files in os.walk(options.root + '/var/db/pkg/'):
     for name in files:
         if name=='CONTENTS':
             contentsfile = os.path.join(root,name)
@@ -195,7 +197,7 @@ def parse_dir(dirname, dirs, files):
         else:
             printL(why['u'],curfile)   # User file (not in contents)
 
-for root, dirs, files in os.walk("/",topdown=True):
+for root, dirs, files in os.walk(options.root + options.topdir,topdown=True):
     if root in excludes:
         del dirs[:] # Wipe out directories, it won't go any deeper
     elif (root not in CONTENTS) and (root != '/'): # Pure user directory
