@@ -26,11 +26,14 @@ __version__=0.1
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]",
                       version="%prog {0}".format(__version__),
-                      description="Prints all pristine gentoo portage files")
+                      description="Prints all files and directories not "
+                      "installed by gentoo portage, including any files that "
+                      "were but have since been modified.  Directories are "
+                      "output with a trailing slash and not descended.")
 parser.add_option("--excludes",action="store",dest="excludes",
                   default=None,help="File containing list of dirs to skip")
-parser.add_option("--mtime",action="store_true",dest="mtime",
-                  default=False,help="Check mtime rather than md5 sum")
+parser.add_option("--md5",action="store_true",dest="md5",
+                  default=False,help="Check md5sum rather than mtime (approx 30x slower)")
 parser.add_option("--why",action="store_true",dest="why",
                   default=False,help="Prefix filenames with reason")
 parser.add_option("--verbose",action="store_true",dest="verbose",
@@ -179,16 +182,16 @@ def parse_dir(dirname, dirs, files):
                if os.readlink(curfile) not in [res['link'] for res in CONTENTS[curfile]]:
                    printL(why['l'],curfile)   # changed link
             elif os.path.isfile(curfile):
-               if options.mtime:
-                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
-                   mtimereal=str(os.path.getmtime(curfile))
-                   if mtimereal not in mtimestored:
-                       printL(why['t'],curfile) # changed mtime
-               else:
+               if options.md5:
                    md5stored = [res['md5sum'] for res in CONTENTS[curfile]]
                    md5real = perform_checksum(curfile)[0]
                    if (md5real not in md5stored):
                        printL(why['s'],curfile)   # changed sum
+               else:
+                   mtimestored=[res['mtime'] for res in CONTENTS[curfile]]
+                   mtimereal=str(os.path.getmtime(curfile))
+                   if mtimereal not in mtimestored:
+                       printL(why['t'],curfile)   # changed mtime
         else:
             printL(why['u'],curfile)   # User file (not in contents)
 
