@@ -14,7 +14,7 @@ if sys.hexversion < 0x3010000:
     print("This program requires python 3.1 or greater")
     sys.exit(1)
 
-__version__="0.2.1"
+__version__="0.2.2"
 
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]",
