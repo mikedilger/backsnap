@@ -160,15 +160,18 @@ def perform_checksum(filename):
 def parse_dir(dirname, dirs, files):
     global options,size_portage
     if (options.verbose):
-        printL("Parsing {0}...".format(dirname), file=sys.stderr)
+        printL("Combing {0}...".format(dirname), file=sys.stderr)
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
         if os.path.exists(curdir):
-            size=os.path.getsize(curdir)
-            if curdir in CONTENTS:
-                size_portage+=size
+            if curdir in excludes:
+                printL('X ',curdir,'/')   # Excluded directory
             else:
-                printL('U ',curdir,'/')   # User directory
+                size=os.path.getsize(curdir)
+                if curdir in CONTENTS:
+                    size_portage+=size
+                else:
+                    printL('U ',curdir,'/')   # User directory
     for file in files:
         curfile=os.path.join(dirname,file)
         if os.path.exists(curfile):
@@ -200,7 +203,6 @@ def parse_dir(dirname, dirs, files):
             printL('U ',curfile)   # User file (not in contents)
 
 for root, dirs, files in os.walk("/",topdown=True):
-
     if root in excludes:
         if (options.verbose):
             printL("Excluding {0}".format(root), file=sys.stderr)
