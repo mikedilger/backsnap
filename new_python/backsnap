@@ -309,16 +309,25 @@ if sts != 0:
 
 # Determine the rotation target ----------------------------------------------
 
-p = subprocess.Popen(destrun + ['/bin/cat',
-                                "{0}/.backsnap/count".format(destpath)],
-                     env=myenv,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-output = p.communicate()[0]
-if p.returncode!=0 or len(output)<1:
-  count=0
+if direction=='push':
+  p = subprocess.Popen(destrun + ['/bin/cat',
+                                  "{0}/.backsnap/count".format(destpath)],
+                       env=myenv,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+  output = p.communicate()[0]
+  if p.returncode!=0 or len(output)<1:
+    count=0
+  else:
+    if isinstance(output,bytes):
+      count = int(output.decode())
 else:
-  if isinstance(output,bytes):
-    output = output.decode()
-  count = int(output)
+  fd = os.open("{0}/.backsnap/count".format(destpath),
+               os.O_RDONLY)
+  if (fd<1):
+    print("Error: trouble reading count")
+    myexitcode()
+  output = os.read(fd,10)
+  count=int(output.decode())
+  os.close(fd)
 
 if count == 0:
   # Pre tower strategy, do last level once
