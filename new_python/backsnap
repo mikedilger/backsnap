@@ -243,12 +243,11 @@ if testdest is not None:
     direction="push"
     desthost = testdest.groups()[0]
     destpath = testdest.groups()[1]
-    destaccess = ['/usr/bin/ssh',desthost]
+    srcspath = srcs
 else:
-  destaccess = []
+  destpath=dest
   if testsrc is not None:                  # PULL:
     direction="pull"
-    srcshost = testsrc.groups()[0]
     srcspath = []
     for s in srcs:
       ts = hostmatchprog.match(s)
@@ -258,35 +257,33 @@ else:
         myexitcode()
       srcspath.append(ts.groups()[1])
   else:                                    # LOCAL:
+    srcspath = srcs
     direction="local"
 
 print("  DEBUG: direction = {0}".format(direction))
 
-# Get the excludes file into tempdir -----------------------------------------
-import subprocess
-if direction=="push":  # Deal with remote excludes file
-  p = subprocess.Popen(['/usr/bin/ionice','-c','3',
-                        '/usr/bin/scp',
-                        "{0}:{1}/.backsnap/excludes".format(desthost,destpath),
-                        tempdir],
-                       stderr=subprocess.PIPE)
-  sts = os.waitpid(p.pid,0)[1]
-else:
-  p = subprocess.Popen(['/bin/cp',"{0}/.backsnap/excludes".format(dest),
-                        tempdir])
-  sts = os.waitpid(p.pid,0)[1]
-if (sts!=0):
-  print("Error: excludes file out found at {0}/.backsnap/excludes".format(dest))
-  myexitcode()
-excludesfile=tempdir+"/excludes"
+# Setup reusable command arguments -------------------------------------------
 
-# Setup perfopts -------------------------------------------------------------
-perfopts=''
-if options.slownet:
-  perfopts='-z'   # -z means compress
+ionice=['/usr/bin/ionice','-c','3']
+
+iftesting=[]
+if (options.dryrun):
+  iftesting=['/bin/echo']
+
+destrun=[]
+destcp=['/bin/cp']
+if direction=="push":
+  destrun=['/usr/bin/ssh',desthost]
+  destcp=['/usr/bin/scp']
+
+rsync_perfopts=[]
+if options.slownet and direction!='local':
+  rsync_perfopts.append('-z')   # -z means compress
 if direction=='local':
-  perfopts='-W'   # -W copies the whole file, doesn't do delta algorithm
+  rsync_perfopts.append('-W')   # -W copies whole file, doesn't do rsync algo
   # bash backsnap used -W on all fastnets, I'm not so sure about that.
+  # It really depends on the speed of the network vs. the speed of the hard
+  # disks.
 
 # Setup RSYNC_RSH env --------------------------------------------------------
 myenv = os.environ
@@ -299,8 +296,23 @@ if not direction=='local':
 else:
   myenv['RSYNC_SSH']=""
 
+# Get the excludes file into tempdir -----------------------------------------
+
+import subprocess
+p = subprocess.Popen(ionice + destcp +
+                     ["{0}/.backsnap/excludes".format(dest),
+                      tempdir],
+                     env=myenv,stderr=subprocess.PIPE)
+sts = os.waitpid(p.pid,0)[1]
+if (sts!=0):
+  print("Error: excludes file out found at {0}/.backsnap/excludes".format(dest))
+  myexitcode()
+excludesfile=tempdir+"/excludes"
+
 # Verify destination exists --------------------------------------------------
-p = subprocess.Popen(destaccess + ['/usr/bin/test','-d',destpath])
+
+p = subprocess.Popen(destrun + ['/usr/bin/test','-d',destpath],
+                     env=myenv,stderr=subprocess.PIPE)
 sts = os.waitpid(p.pid,0)[1]
 if sts != 0:
   print("Error: Destination {0} not found".format(dest))
@@ -308,9 +320,9 @@ if sts != 0:
 
 # Determine the rotation target ----------------------------------------------
 
-p = subprocess.Popen(destaccess + ['/bin/cat',
-                                   "{0}/.backsnap/count".format(destpath)],
-                     stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+p = subprocess.Popen(destrun + ['/bin/cat',
+                                "{0}/.backsnap/count".format(destpath)],
+                     env=myenv,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 output = p.communicate()[0]
 if p.returncode!=0 or len(output)<1:
   count=0
@@ -339,54 +351,132 @@ if len(target)<1:
 
 # Validate src access prior to dest deletion ---------------------------------
 
-if direction=='pull':
-  sd=os.path.dirname(srcspath[0])
-else:
-  sd=os.path.dirname(srcs[0])
-
-cmd=['/usr/bin/ionice','-c','3']
+# NOTES  We use dest/target instead of dest/target/srcdir because we know
+#        it exists, no need to create it, it tests our permissions, and
+#        --dry-run doesn't write anything anyhow.
+#        It is not recursive, dir copies as dir not going in,
+#        --links, --perms, --times, --group, --owner, --devices, --specials
+#        are all from -a
+cmd = iftesting + ionice
 cmd.extend(['/usr/bin/rsync','--links','--perms','--times','--group','--owner',
         '--devices','--specials','--one-file-system','--sparse',
-        '--numeric-ids'])
-cmd.append(perfopts)
-cmd.extend(['--dirs','--dry-run'])   # This is ALWAYS dry run
-cmd.extend([srcs[0],"{0}/{1}".format(dest,target)])
-
-if options.dryrun:
-  print(*cmd,sep=" ")
-  sts = 0
-else:
-  p = subprocess.Popen(cmd, env=myenv,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-  sts = os.waitpid(p.pid,0)[1]
-
-if sts not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
+        '--numeric-ids','--dirs','--dry-run'])  # this is ALWAYS dry run
+cmd.extend(rsync_perfopts)
+cmd.extend([os.path.dirname(srcspath[0]),
+            "{0}/{1}".format(dest,target)])
+p = subprocess.Popen(cmd, env=myenv)
+p.communicate()   # or: sts = os.waitpid(p.pid,0)[1]
+if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
   print("Error: dry-run failed.  Aborting (nothing has been deleted)")
   myexitcode()
 
-# ----------------------------------------------------------------------------
-# p = subprocess.Popen(,env=myenv)
+# Delete the target directory -----------------------------------------------
 
-# DEBUG EXIT EARLY -----------------------------------------------------------
+cmd = iftesting + destrun + ionice
+cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
+cmd.append("{0}/{1}".format(destpath,target))
+p = subprocess.Popen(cmd, env=myenv)
+p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+if p.returncode!=0:
+  print("Error: trouble deleting the target directory")
+  myexitcode()
 
-print("  Debug: this script bailing out early.")
+# Determine link-targ --------------------------------------------------------
+
+cmd = destrun[:]
+cmd.extend(['/bin/ls','-1t',destpath])
+p = subprocess.Popen(cmd, env=myenv, stdout=subprocess.PIPE)
+output = p.communicate()[0]
+if isinstance(output,bytes):
+  output = output.decode()
+newestlist = output.splitlines()
+linktarg=''
+for tt in newestlist:
+  if tt!=target:
+    linktarg="{0}/{1}".format(destpath,tt)
+    break
+
+# MAIN LOOP (per srcs) -------------------------------------------------------
+
+for s in srcs:
+
+  if direction=='pull':
+    ts = hostmatchprog.match(s)
+    shost = ts.groups()[0]
+    spath = ts.groups()[1]
+  else:
+    shost = ''
+    spath = s
+  sdir=os.path.dirname(spath)
+
+  print()
+
+  # If destdir, clear it -----------------------------------------------------
+  cmd = iftesting + destrun + ionice
+  cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
+  cmd.append("{0}/{1}{2}".format(destpath,target,spath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble deleting the target directory")
+    myexitcode()
+
+  # Make destdir -------------------------------------------------------------
+  cmd = iftesting + destrun
+  cmd.extend(['/bin/mkdir','-p'])
+  cmd.append("{0}/{1}{2}".format(destpath,target,spath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble making the target directory")
+    myexitcode()
+
+  # rsync --------------------------------------------------------------------
+  # rsync the source directory into target using linktarg as the link
+  # destination (that is, if the file is already in linktarg and equal,
+  # hardlink instead of copying anew)
+  # -a        archive flags
+  # -x        don't cross filesystem boundaries
+  # -S                    handle sparse files as sparse files
+  # --password-file       password for ssh access
+  # --exclude-from        skip these directories
+  # --numeric-ids         important if UIDs/GIDs are not in sync
+  # --link-dest           If exists here, hardlink instead of creating anew
+  #
+  # These are not used because we start into a fresh directory:
+  # --delete              delete first (may not matter if target empty)
+  # --delete-excluded     delete newly excluded directories on taget
+  print("Snapshoting {0} . . .".format(sdir))
+  cmd = iftesting + ionice
+  cmd.extend(['/usr/bin/rsync','--archive','--one-file-system','--sparse',
+              '--exclude-from={0}'.format(excludesfile),
+              '--numeric-ids'])
+  cmd.extend(rsync_perfopts)
+  if (len(linktarg)>0):
+    cmd.append('--link-dest={0}'.format(linktarg))
+  cmd.append(s)
+  cmd.append("{0}/{1}{2}".format(dest,target,spath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode not in (0,6,21,23,24,25):
+    print("Error: trouble rsyncing the data")
+    myexitcode()
+
+# Mark target as new after we are finished with it --------------------------
+
+cmd = iftesting + destrun
+cmd.append('/usr/bin/touch')
+cmd.append("{0}/{1}".format(destpath,target))
+p = subprocess.Popen(cmd, env=myenv)
+p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+if p.returncode!=0:
+  print("Error: trouble updating mtime at target")
+  myexitcode()
+
+# Update the count ----------------------------------------------------------
+# If a backup fails, it doesn't get this far and the count is not updated,
+# then next time it tries over the same slot, which is desirable.
+
+# XXX
+print("  Debug: this script DID NOT UPDATE COUNT (tbd).")
 myexitcode()
-
-MANIFESTFILE='{0}/files_to_backup'.format(tempdir)
-
-# Write a data line to MANIFESTFILE (and update spinner visual)
-def output(data):
-    global MANIFESTFILE
-    fid=open(MANIFESTFILE,'a')
-    fid.write("%s\n" % data)
-    fid.close()
-    spin()
-
-#fid=open('/var/db/pkgs.dict','w')
-#pickle.dump(PKGS,fid)
-#fid.close()
-#
-#fid=open('/var/db/pkgs.dict','r')
-#PKGS=pickle.load(fid)
-#fid.close()
-
