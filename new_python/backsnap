@@ -477,7 +477,8 @@ if direction=='push':
     myexitcode()
 else:
   if options.dryrun==0:
-    fd = os.open("{0}/.backsnap/count".format(destpath),O_WRONLY|O_TRUNC)
+    fd = os.open("{0}/.backsnap/count".format(destpath),
+                 os.O_WRONLY|os.O_TRUNC)
     if (fd<1):
       print("Error: trouble updating count")
       myexitcode()
