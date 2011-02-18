@@ -1,14 +1,5 @@
-/proc
-/lib/rc/init.d
-/sys
-/dev
-/var/lib/nfs/rpc_pipefs
-/tmp
 /temp
 /tmpfs
-/var/tmp
-/var/cache
-/mnt
 /usr/portage
 /usr/gentoo
 /private

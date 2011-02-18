@@ -14,8 +14,9 @@ if sys.hexversion < 0x3010000:
     print("This program requires python 3.1 or greater")
     sys.exit(1)
 
-__version__="0.3"
+__version__="0.4"
 # 0.3      added --descend option
+# 0.4      added --invert and --stdexcludes options
 
 from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog [options]",
@@ -39,12 +40,26 @@ parser.add_option("--topdir",action="store",dest="topdir",
                   default="/",help="Analyze from this top directory "
                   "(this does not affect where it finds the package database)")
 parser.add_option("--descend",action="store_true",dest="descend",
-                  default=False,help="Descend user directories to print all files")
+                  default=False,help="Descend user directories to print all "
+                  "files")
+parser.add_option("--invert",action="store_true",dest="invert",
+                  default=False,help="Print unmodified gentoo files instead.  "
+                  "In this case the --why and --descend options do not apply")
+parser.add_option("--stdexcludes",action="store_true",dest="stdexcludes",
+                  default=False,help="Exclude gentoo directories normally not "
+                  "backed up including /proc, /lib/rc/init.d, /sys, /dev, "
+                  "/var/lib/nfs/rpc_pipefs, /tmp, /var/tmp, "
+                  "/var/cache, and /mnt")
 (options,args) = parser.parse_args()
 
 excludes=[]
 if options.excludes is not None:
     excludes = open(options.excludes).read().splitlines()
+
+if options.stdexcludes:
+    excludes.extend(['/proc','/lib/rc/init.d','/sys','/dev',
+                     '/var/lib/nfs/rpc_pipefs','/tmp',
+                     '/var/tmp','/var/cache','/mnt'])
 
 # Use integer times
 import os
@@ -102,7 +117,8 @@ def r(path):
 
 # Some of this code comes from /usr/lib/portage/pym/portage/dbapi/vartree.py
 # Some of this code comes from Vincent Delft <vincent_delft@yahoo.com>
-for root, dirs, files in os.walk(normalize_path(options.root + '/var/db/pkg/')):
+for root, dirs, files in os.walk(normalize_path(options.root + '/var/db/pkg/'),
+                                 topdown=True,onerror=None,followlinks=False):
     for name in files:
         if name=='CONTENTS':
             contentsfile = os.path.join(root,name)
@@ -185,36 +201,46 @@ def parse_dir(dirname, dirs, files):
     for dir in dirs:
         curdir=os.path.join(dirname,dir)
         rcurdir=r(curdir)
-        if (rcurdir not in excludes) and (rcurdir not in CONTENTS):
-            if not options.descend:
+        if (rcurdir not in excludes):
+            if (rcurdir not in CONTENTS) and not options.invert and not options.descend:
                 printL(why['u'],rcurdir,'/')   # User directory
+            elif (rcurdir in CONTENTS) and options.invert:
+                printL(rcurdir,'/')   # Gentoo directory
     for file in files:
         curfile=os.path.join(dirname,file)
         rcurfile=r(curfile)
         if rcurfile in CONTENTS:
             if os.path.islink(curfile):
-               if os.readlink(curfile) not in [res['link'] for res in CONTENTS[rcurfile]]:
-                   printL(why['l'],rcurfile)   # changed link
+                linkstored = [res['link'] for res in CONTENTS[rcurfile]]
+                if os.readlink(curfile) not in linkstored and not options.invert:
+                    printL(why['l'],rcurfile)   # changed link
+                elif options.invert:
+                    printL(rcurfile)   # gentoo link
             elif os.path.isfile(curfile):
                if options.md5:
                    md5stored = [res['md5sum'] for res in CONTENTS[rcurfile]]
                    md5real = perform_checksum(curfile)[0]
-                   if (md5real not in md5stored):
+                   if md5real not in md5stored and not options.invert:
                        printL(why['s'],rcurfile)   # changed sum
+                   elif options.invert:
+                       printL(rcurfile)   # gentoo md5 ok
                else:
                    mtimestored=[res['mtime'] for res in CONTENTS[rcurfile]]
                    mtimereal=str(os.path.getmtime(curfile))
-                   if mtimereal not in mtimestored:
+                   if mtimereal not in mtimestored and not options.invert:
                        printL(why['t'],rcurfile)   # changed mtime
-        else:
+                   elif options.invert:
+                       printL(rcurfile)            # gentoo mtime ok
+        elif not options.invert:
             printL(why['u'],rcurfile)   # User file (not in contents)
 
 start=normalize_path(options.root + options.topdir)
-for thisdir, dirs, files in os.walk(start):
+for thisdir, dirs, files in os.walk(start,topdown=True,
+                                    onerror=None,followlinks=False):
     rthisdir=r(thisdir)
     if rthisdir in excludes:
         del dirs[:] # Don't descend excluded dirs
-    elif (rthisdir not in CONTENTS) and (rthisdir != '/') and not options.descend:
+    elif (rthisdir not in CONTENTS) and (rthisdir != '/') and (not options.descend or options.invert):
         del dirs[:] # Don't descend user dirs
     else:
         parse_dir(thisdir,dirs,files)
