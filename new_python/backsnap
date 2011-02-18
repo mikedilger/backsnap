@@ -178,24 +178,22 @@ parser.add_option("--credits",
                   action="callback", callback=print_credits,
                   help="Print credits")
 
-(options, SRC) = parser.parse_args()
+(options, args) = parser.parse_args()
 
-if len(SRC)<1:
+if len(args)<1:
   print("Error: You must specify a <dest> and at least one <src>")
   parser.print_help()
   myexitcode()
 
-if len(SRC)<2:
+if len(args)<2:
   print("Error: You must specify at least one source path")
   parser.print_help()
   myexitcode()
 
-DEST=SRC[0]
-del SRC[0:1]
+dest=args[0]
+srcs=args[1:]
 
-
-print("  DEBUG dest = {0}".format(DEST))
-print("  DEBUG src = {0}".format(SRC))
+print("  DEBUG {0} => {1}".format(srcs,dest))
 
 # Spinner function -----------------------------------------------------------
 
@@ -234,43 +232,140 @@ shutil.rmtree(globals()["tempdir"])
 import re
 direction="local"
 hostmatchprog = re.compile(r"^([^/]+):(.+)")
-testdest = hostmatchprog.match(DEST)
-testsrc = hostmatchprog.match(SRC[0])
+testdest = hostmatchprog.match(dest)
+testsrc = hostmatchprog.match(srcs[0])
 if testdest is not None:
   if testsrc is not None:
     print("Error: <dest> and <src> cannot both be remote")
     parser.print_help()
     myexitcode()
-  else:
+  else:                                    # PUSH:
     direction="push"
     desthost = testdest.groups()[0]
     destpath = testdest.groups()[1]
-    # Create a command to get to the host:p
-    destaccess="/usr/bin/ssh {0}".format(desthost)
-    print("  debug: destaccess='{0}'".format(destaccess))
+    destaccess = ['/usr/bin/ssh',desthost]
 else:
-  if testsrc is not None:
+  destaccess = []
+  if testsrc is not None:                  # PULL:
     direction="pull"
-    for s in SRC:
+    srcshost = testsrc.groups()[0]
+    srcspath = []
+    for s in srcs:
       ts = hostmatchprog.match(s)
       if ts.groups()[0] != testsrc.groups()[0]:
         print("Error: All remote <src> must be the same host")
         parser.print_help()
         myexitcode()
-  else:
+      srcspath.append(ts.groups()[1])
+  else:                                    # LOCAL:
     direction="local"
 
 print("  DEBUG: direction = {0}".format(direction))
 
-# FETCH CONFIGURATION --------------------------------------------------------
-
+# Get the excludes file into tempdir -----------------------------------------
 import subprocess
 if direction=="push":  # Deal with remote excludes file
   p = subprocess.Popen(['/usr/bin/ionice','-c','3',
                         '/usr/bin/scp',
                         "{0}:{1}/.backsnap/excludes".format(desthost,destpath),
+                        tempdir],
+                       stderr=subprocess.PIPE)
+  sts = os.waitpid(p.pid,0)[1]
+else:
+  p = subprocess.Popen(['/bin/cp',"{0}/.backsnap/excludes".format(dest),
                         tempdir])
   sts = os.waitpid(p.pid,0)[1]
+if (sts!=0):
+  print("Error: excludes file out found at {0}/.backsnap/excludes".format(dest))
+  myexitcode()
+excludesfile=tempdir+"/excludes"
+
+# Setup perfopts -------------------------------------------------------------
+perfopts=''
+if options.slownet:
+  perfopts='-z'   # -z means compress
+if direction=='local':
+  perfopts='-W'   # -W copies the whole file, doesn't do delta algorithm
+  # bash backsnap used -W on all fastnets, I'm not so sure about that.
+
+# Setup RSYNC_RSH env --------------------------------------------------------
+myenv = os.environ
+if not direction=='local':
+  # RSYNC_RSH environment variable will be used by rsync
+  #   -c arcfour:         weak but fast encryption
+  #   -o Compression=no:  rsync already compresses, ssh doesn't need to
+  #   -x                  turns off X tunnelling (shouldn't be on anyhow)
+  myenv['RSYNC_SSH']="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
+else:
+  myenv['RSYNC_SSH']=""
+
+# Verify destination exists --------------------------------------------------
+p = subprocess.Popen(destaccess + ['/usr/bin/test','-d',destpath])
+sts = os.waitpid(p.pid,0)[1]
+if sts != 0:
+  print("Error: Destination {0} not found".format(dest))
+  myexitcode()
+
+# Determine the rotation target ----------------------------------------------
+
+p = subprocess.Popen(destaccess + ['/bin/cat',
+                                   "{0}/.backsnap/count".format(destpath)],
+                     stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+output = p.communicate()[0]
+if p.returncode!=0 or len(output)<1:
+  count=0
+else:
+  if isinstance(output,bytes):
+    output = output.decode()
+  count = int(output)
+
+if count == 0:
+  # Pre tower strategy, do last level once
+  target='LEVEL{0}'.format(options.maxbackups)
+else:
+  modulus=1
+  level=1
+  while level<options.maxbackups:
+    modulus=modulus*2
+    mod=count % modulus
+    if mod!=0:
+      break
+    level+=1
+  target='LEVEL{0}'.format(level)
+
+if len(target)<1:
+  print("Error: target did not get set (this is a bug)")
+  myexitcode()
+
+# Validate src access prior to dest deletion ---------------------------------
+
+if direction=='pull':
+  sd=os.path.dirname(srcspath[0])
+else:
+  sd=os.path.dirname(srcs[0])
+
+cmd=['/usr/bin/ionice','-c','3']
+cmd.extend(['/usr/bin/rsync','--links','--perms','--times','--group','--owner',
+        '--devices','--specials','--one-file-system','--sparse',
+        '--numeric-ids'])
+cmd.append(perfopts)
+cmd.extend(['--dirs','--dry-run'])   # This is ALWAYS dry run
+cmd.extend([srcs[0],"{0}/{1}".format(dest,target)])
+
+if options.dryrun:
+  print(*cmd,sep=" ")
+  sts = 0
+else:
+  p = subprocess.Popen(cmd, env=myenv,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  sts = os.waitpid(p.pid,0)[1]
+
+if sts not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
+  print("Error: dry-run failed.  Aborting (nothing has been deleted)")
+  myexitcode()
+
+# ----------------------------------------------------------------------------
+# p = subprocess.Popen(,env=myenv)
 
 # DEBUG EXIT EARLY -----------------------------------------------------------
 
