@@ -92,11 +92,11 @@ import signal
 # EXIT HANDLER AND TRAP SIGNALS ----------------------------------------------
 
 ONEXIT=[]
-def myexitcode(*args):
+def myexitcode(*args,exitval=1):
   global ONEXIT
   for code in ONEXIT:
     exec(code)
-  sys.exit(1)
+  sys.exit(exitval)
 
 signal.signal(signal.SIGSEGV,myexitcode)
 signal.signal(signal.SIGINT,myexitcode)
@@ -194,17 +194,6 @@ dest=args[0]
 srcs=args[1:]
 
 print("  DEBUG {0} => {1}".format(srcs,dest))
-
-# Spinner function -----------------------------------------------------------
-
-SPINNER_CHAR=['-','\\','|','/']
-SPINNER_CHAR_POS=0
-def spin():
-    global SPINNER_CHAR, SPINNER_CHAR_POS
-    sys.stdout.write(SPINNER_CHAR[SPINNER_CHAR_POS] + '\r')
-    sys.stdout.flush()
-    SPINNER_CHAR_POS+=1
-    if SPINNER_CHAR_POS==4: SPINNER_CHAR_POS=0
 
 # Verify that we are running as root -----------------------------------------
 
@@ -453,7 +442,7 @@ for s in srcs:
               '--numeric-ids'])
   cmd.extend(rsync_perfopts)
   if (len(linktarg)>0):
-    cmd.append('--link-dest={0}'.format(linktarg))
+    cmd.append('--link-dest={0}{1}'.format(linktarg,spath))
   cmd.append(s)
   cmd.append("{0}/{1}{2}".format(dest,target,spath))
   p = subprocess.Popen(cmd, env=myenv)
@@ -476,7 +465,24 @@ if p.returncode!=0:
 # Update the count ----------------------------------------------------------
 # If a backup fails, it doesn't get this far and the count is not updated,
 # then next time it tries over the same slot, which is desirable.
+count+=1
+if direction=='push':
+  cmd = iftesting + destrun
+  # The next is all one argument, it's handled on the remote machine:
+  cmd.append("/bin/echo {0} > {1}/.backsnap/count".format(count,destpath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble updating count")
+    myexitcode()
+else:
+  if options.dryrun==0:
+    fd = os.open("{0}/.backsnap/count".format(destpath),O_WRONLY|O_TRUNC)
+    if (fd<1):
+      print("Error: trouble updating count")
+      myexitcode()
+    os.write(fd,str(count))
+    os.close(fd)
 
-# XXX
-print("  Debug: this script DID NOT UPDATE COUNT (tbd).")
-myexitcode()
+print("Finished.")
+myexitcode(exitval=0)
