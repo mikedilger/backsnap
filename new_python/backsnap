@@ -451,9 +451,9 @@ for s in srcs:
               '--numeric-ids'])
   cmd.extend(rsync_perfopts)
   if (len(linktarg)>0):
-    cmd.append('--link-dest={0}{1}'.format(linktarg,spath))
+    cmd.append('--link-dest={0}{1}'.format(linktarg,sdir)) # spath wasn't workn
   cmd.append(s)
-  cmd.append("{0}/{1}{2}".format(dest,target,spath))
+  cmd.append("{0}/{1}{2}".format(dest,target,sdir))
   p = subprocess.Popen(cmd, env=myenv)
   p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
   if p.returncode not in (0,6,21,23,24,25):
