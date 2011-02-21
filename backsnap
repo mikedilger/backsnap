@@ -1,421 +1,498 @@
-#!/bin/sh
-# Backsnap:   Pushes or pulls a backup snapshot to/from a directory to backup
-VERSION=0.3
-#
-# Usage:  backsnap <dest> <src> [<src> ...]
-#
-#     <dest>  - REQUIRED, you must specify a backup destination directory
-#     <src>   - REQUIRED, one or more source paths
-#
-#     Either <dest> or <src> (but not both) may be a remote path in the
-#     form <hostname>:<path>.   In these cases, ssh is used.
-#
-# NOTE ON VERSION 0.3:
-# Configiration data must be in <dest>/.backsnap in these files:
-#    <dest>/.backsnap/config
-#    <dest>/.backsnap/excludes
-#    <dest>/.backsnap/count
-# Configuration information in /etc/backsnap is no longer relevant.  That
-# is because backsnap operation is no longer conceived to be per-system
-# but rather per-destination.
-#
-# NOTE ON NEW VERSION 0.1:
-# After backsnap 'rotates' previous backups, it will clear the destination.
-# Then it will backup each <src> into this destination.  Then it will update
-# the count.   If you run a subsequent backsnap command to backup more
-# data to this destination IT WILL CLEAR IT FIRST.   So make it all one
-# command.  The --nocount and --noclear options have been removed, and
-# backsnap will fail to run if it encounters an option it doesn't understand.
-#
-# backsnap must be run as root, and must have root access via ssh to the
-#   remote system, without password prompts (it is recommended to use
-#   ssh authorized_keys.  See ssh for details).
-#
-# Snapshots are rotated daily on a tower-of-hanoi schedule.  To see the
-#   backups in date order, use the -t option to ls.
-#
-# Example usage from cron:
-#   59 15 * * *    root   /sbin/backsnap pluto:/ /backups/pluto/
-#   59 18 * * *    root   /sbin/backsnap saturn:/ /backups/saturn/
-#
-# Snapshots are useful nfs mounted read-only, so users can recover their
-#   files with a minimum of fuss.
-# Sample /etc/exports line:
-#   /backups 192.168.1.0/24(ro,async,no_root_squash,no_subtree_check)
-# Sample /etc/fstab line:
-#   backuphost:/backups/saturn   /snapshots  nfs  proto=tcp,ro,noatime,soft,intr,nolock 0 0
-#
-# Credits:
-#   Written by Mike Dilger
-#   Derived from discussions on these pages:
-#     http://www.mikerubel.org/computers/rsync_snapshots/
-#     http://www.sanitarium.net/golug/rsync_backups.html
-#     http://en.wikipedia.org/wiki/Backup_rotation_scheme
-#
-#-------------------------------------------------------------------------
-# Avoid accidental use of $PATH
-unset PATH
+#!/bin/env python3
+# -*- mode: python; -*-
 
-#-------------------------------------------------------------------------
-# Verify we are running as root
-THISUID=`/usr/bin/id -u`
-if [ $THISUID -ne 0 ] ; then
-    /bin/echo "This script will only run as root."
-    exit 1
-fi
+# DEFINE VARIABLES -----------------------------------------------------------
+MANUAL="""
+You must first configure the backup destination, in particular the excludes
+file.   At the destination, there must exist a .backsnap directory and an
+excludes file:
 
-#-------------------------------------------------------------------------
-# Trap to clean up temporary files
+  <dest>/.backsnap/excludes  - list of directories and files to exclude,
+                               one path per line.
 
-declare -a on_exit_items
+Backsnap will create and manage other files in this directory you can
+safely ignore (e.g. count, filelist).
 
-function on_exit()
-{
-    for i in "${on_exit_items[@]}"
-    do
-        /bin/echo "on_exit: $i"
-        eval $i
-    done
-}
+Backups at the destination will be in directories named LEVELn/
+where n is the level.  These level numbers do NOT represent time order,
+but rather tower-of-hanoi depth.  To list the backups from oldest to
+newest, pass the -t option to /bin/ls.
 
-function add_on_exit()
-{
-    local n=${#on_exit_items[*]}
-    on_exit_items[$n]="$*"
-    if [[ $n -eq 0 ]]; then
-        /bin/echo "Setting trap"
-        trap on_exit EXIT
-    fi
-}
+Do not run backsnap multiple times to back up multiple sources.  Rather
+list all the sources to be backed up on the command line for one
+invocation.  Otherwise it will increment the count, clear the destination
+(possibly erasing an older backup), and backup the data at a different
+backup level from the previous invocation.
 
-#-------------------------------------------------------------------------
+Backsnap must be run as root, and it must have root access to <dest>
+and <src>.  If this includes root access over the network via ssh,
+then ssh must not be impinged with password prompts. This can be
+achieved with ssh authorized_keys.  See ssh for details.
 
-function usage {
-    /bin/echo "Usage:  backsnap [options] <dst> <src> [<src>]"
-    /bin/echo "  --version    Print the version"
-    /bin/echo "  --fastnet    Don't use network compression"
-    /bin/echo "  --dry-run    Just print what it would do, don't actually"
-}
+Features:
 
-#-------------------------------------------------------------------------
-# Parse/validate the parameters
+* Keeps multiple levels of backups using the tower-of-hanoi strategy.
+* Uses rsync and the previous backup in such a way that it only copies
+  data that has changed since the previous backup was taken.
+* If a file hasn't changed, it is included in the new backup via a hardlink,
+  so the data is not duplicated and yet the new backup directory contains
+  all of the files (for this reason, keeping 8 levels of backup doesn't take
+  8x of the original space, in practice it is closer to 2x)
+* Supports both push and pull architectures
+* Is portage-aware, optionally skipping system files which have not been
+  altered from the package default
+* Backups are fully functional filesystems, so they are mountable (read-only
+  please) and recovery is a cinch.  (If we compressed them we wouldn't save
+  space because we'd lose the hardlink savings)
+* Encrypted transit using ssh
+* Uses nice and ionice so your system doesn't bog down during operation
+* Optionally uses network compression for slow (or expensive) networks
 
-INDSTISSET=0
-INDST=
-INSRCLIST=
-for PARAM in $@; do
+Examples:
 
-    case $PARAM in
-        -*) true;
-            case $PARAM in
-                --version)
-                    /bin/echo "Version $VERSION"
-                    exit 0
-                    ;;
-                --fastnet)
-                    FASTNET=true
-                    ;;
-                --maxbackups)
-                    shift
-                    MAXBACKUPS=$1
-                    ;;
-                --dry-run)
-                    TESTING="/bin/echo"
-                    ;;
-                -*)
-                    /bin/echo "Option $PARAM is not recognized.  Bailing out."
-                    usage
-                    exit 1
-                    ;;
-            esac
-            ;;
-        *)
-            if [ $INDSTISSET -eq 1 ] ; then
-                INSRCLIST="$INSRCLIST $PARAM"
-            else
-                INDST=$PARAM
-                INDSTISSET=1
-            fi
-            ;;
-    esac
-    shift
+  Example push usage from cron:
+    59 15 * * *  root  /sbin/backsnap pluto:/backups/earth / /var
 
-done
+  Example pull usage from cron:
+    45 2 * * 2   root  /sbin/backsnap /backups/earth earth:/ earth:/boot earth:/var
 
-if [ "x$INSRCLIST" = x ] ; then
-    /bin/echo "You must specify <dest> and <src>"
-    usage
-    exit 1
-fi
-if [ "x$INDST" = x ] ; then
-    /bin/echo "You must specify <dest> and <src>"
-    usage
-fi
+  Example read-only nfs mounting backups, backup server /etc/exports:
+    /backups 192.168.1.0/24(ro,async,no_root_squash,no_subtree_check)
 
-# Debug
-#/bin/echo "SOURCE      = $INSRCLIST"
-#/bin/echo "DESTINATION = $INDST"
-#exit 1
+  Example read-only nfs mounting backups, client fstab:
+    pluto:/backups/earth   /snapshots  nfs  proto=tcp,ro,noatime,soft,intr,nolock 0 0
+"""
 
-# Verify no more than one is remote
-REMOTE=0
-# note: multiple INSRCLIST is still just 1 line, so this is ok:
-REMOTESRC=`/bin/echo $INSRCLIST | /bin/grep : | /usr/bin/wc -l`
-REMOTE=`/usr/bin/expr $REMOTE + $REMOTESRC`
-REMOTEDST=`/bin/echo $INDST | /bin/grep : | /usr/bin/wc -l`
-REMOTE=`/usr/bin/expr $REMOTE + $REMOTEDST`
-if [ $REMOTE -gt 1 ] ; then
-    echo "At most one of <src> or <dst> may be local"
-    exit 1
-fi
+CREDITS="""by Michael Dilger <mike@mikedilger.com>
+  nongentoo checking code originally from:
+    Vincent Delft <vincent_delft@yahoo.com>
+  rsync backup ideas taken from:
+    http://www.mikerubel.org/computers/rsync_snapshots/
+    http://www.sanitarium.net/golug/rsync_backups.html
+  tower of hanoi strategy from:
+    http://en.wikipedia.org/wiki/Backup_rotation_scheme
+"""
 
-# Parse INDST
-if [ $REMOTEDST -ne 0 ] ; then
-    DSTHOST=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $1}'`
-    DSTPATH=`/bin/echo ${INDST} | /usr/bin/awk -F: '{print $2}'`
-    DSTACCESS="/usr/bin/ssh ${DSTHOST}"
-else
-    DSTHOST=
-    DSTPATH=${INDST}
-    DSTACCESS=
-fi
+AUTHOR="Michael Dilger"
+VERSION="0.4"
+LAST_MODIFICATION="18 February 2011"
 
-#-------------------------------------------------------------------------
-# Deal with possibly remote config and excludes files
+# IMPORTS --------------------------------------------------------------------
 
-TMPDIR=`/usr/bin/mktemp -d`
-add_on_exit /bin/rm -rf --one-file-system --preserve-root $TMPDIR
+import os.path,os
+try:
+  import cPickle as pickle
+except:
+  import pickle
+import sys
+import string
+import fnmatch
+import signal
 
-if [ $REMOTEDST -ne 0 ] ; then
-    /usr/bin/ionice -c 3 /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/excludes $TMPDIR
-    if [ $? -ne 0 ] ; then
-        /bin/echo "Failed to find $DSTHOST:$DSTPATH/.backsnap/config or $DSTHOST:$DSTPATH/.backsnap/excludes"
-        exit 1
-    fi
-else
-    /bin/cp $DSTPATH/.backsnap/config $DSTPATH/.backsnap/excludes $TMPDIR
-    if [ $? -ne 0 ] ; then
-        /bin/echo "Failed to find $DSTPATH/.backsnap/config or $DSTPATH/.backsnap/excludes"
-        exit 1
-    fi
-fi
-source $TMPDIR/config
-EXCLUDE_FILE=$TMPDIR/excludes
+# EXIT HANDLER AND TRAP SIGNALS ----------------------------------------------
 
-#-------------------------------------------------------------------------
-# Setup a few general parameters
+ONEXIT=[]
+def myexitcode(*args,exitval=1):
+  global ONEXIT
+  for code in ONEXIT:
+    exec(code)
+  sys.exit(exitval)
 
-if [ x$FASTNET = xtrue ] ; then PERFOPTS=-W; else PERFOPTS=-z; fi
-if [ $REMOTE -eq 0 ] ; then
-    # Not remote, no compressionk
-    PERFOPTS=-W;
-    export RSYNC_RSH=""
-else
-    # Set the RSYNC_RSH variable to be sure we are using SSH, and set some
-    # parameters for that
-    #    -c arcfour:          weak fast encryption
-    #    -o Compression=no:   rsync already compresses, ssh doesn't need to
-    #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
-    # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
-    export RSYNC_RSH="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
-fi
+signal.signal(signal.SIGSEGV,myexitcode)
+signal.signal(signal.SIGINT,myexitcode)
+signal.signal(signal.SIGABRT,myexitcode)
+signal.signal(signal.SIGHUP,myexitcode)
+signal.signal(signal.SIGQUIT,myexitcode)
+signal.signal(signal.SIGTERM,myexitcode)
 
-#---------------------------------------------------------------------
-# DSTPATH must exist
+# e.g.
+  #ONEXIT.append('''# remove temp dir
+  ##/bin/rm -rf --one-file-system --preserve-root $TMPDIR   # but this is bash
+  #'''
+  #);
 
-${DSTACCESS} /usr/bin/test -d ${DSTPATH}
-if [ $? -ne 0 ] ; then
-  /bin/echo "${INDST} does not exist."
-  exit 1
-fi
+# PARSE COMMAND LINE ---------------------------------------------------------
 
-#---------------------------------------------------------------------
-# Determine the rotation target
+def print_manual(option,opt,value,parser):
+  global MANUAL
+  parser.print_help()
+  print(MANUAL)
+  myexitcode()
 
-if [ z"$MAXBACKUPS" = z ] ; then MAXBACKUPS=8; fi
+def print_credits(option,opt,value,parser):
+  global CREDITS
+  print(CREDITS)
+  myexitcode()
 
-COUNT=`${DSTACCESS} /bin/cat ${DSTPATH}/.backsnap/count 2>/dev/null`
-if [ x$COUNT = x ] ; then COUNT=0; fi
+from optparse import OptionParser
+parser = OptionParser(usage="usage: %prog [options] <dest> <src> [<src> ...]",
+                      version="%prog {0}".format(VERSION),
+                      description="Backsnap (backup snapshot) backs up "
+                      "directories, manages multiple backup levels, works "
+                      "over the network, and optionally skips system files.  "
+                      "You must specify a <dest> path and "
+                      "at least one <src> path.  "
+                      "Either <dest> or <src> (but not both) may be a remote "
+                      "path in the form <hostname>:<path>, in which case ssh "
+                      "is used.   If <src> is in this form, all <src> "
+                      "arguments must use the same hostname.")
 
-# safety:
-COUNTWORDS=`/bin/echo $COUNT | /usr/bin/wc -w`
-if [ $COUNTWORDS -ne 1 ] ; then
-    /bin/echo "count at destination does not contain a single number"
-    exit 1
-fi
-# COUNT=`/bin/date +%j`  # <-- daily method has problem if days are skipped
+parser.add_option("--manual",
+                  action="callback", callback=print_manual,
+                  help="Long help message (like a man page)")
+parser.add_option("--dry-run",
+                  action="store_true",
+                  dest="dryrun",
+                  default=False,
+                  help="Just print what it would do, but don't actually do it")
+parser.add_option("--slownet",
+                  action="store_true",
+                  dest="slownet",
+                  default=False,
+                  help="Use network compression [default: %default]")
+parser.add_option("--rootdir",
+                  action="store",
+                  dest="rootdir",
+                  default="/",
+                  help="Root directory of the source [default: %default]")
+parser.add_option("--mtimeonly",
+                  action="store_true",
+                  dest="mtimeonly",
+                  default=False,
+                  help="Compare system files based on mtime only (skip md5) "
+                  "[default: %default]")
+parser.add_option("--skipsystem",
+                  action="store_true",
+                  dest="skipsystem",
+                  default=False,
+                  help="Skip all unmodified system files in the backup "
+                  "[default: %default]")
+parser.add_option("--depth",
+                  action="store",
+                  type="int",
+                  dest="depth",
+                  default=8,
+                  help="Number of levels deep for tower of hanoi "
+                  "[default: %default]")
+parser.add_option("--credits",
+                  action="callback", callback=print_credits,
+                  help="Print credits")
 
-if [ $COUNT -eq 0 ] ; then
-  # Pre-tower strategy, do last level once
-  TARGET='LEVEL'$MAXBACKUPS
-else
-  # Tower of hanoi strategy
-  MODULUS=1
-  for (( LVL=1 ; $LVL < $MAXBACKUPS ; LVL=$LVL+1 )) ; do
-    MODULUS=`/usr/bin/expr $MODULUS \* 2`
-    MOD=`/usr/bin/expr $COUNT % $MODULUS`
-    if [ $MOD -ne 0 ] ; then break; fi
-  done
-  # Worst case backup period is (2^(n-2)+1) backups
-  # Best case backup period is (2^(n-1)) backups
-  TARGET='LEVEL'$LVL
-fi
+(options, args) = parser.parse_args()
 
-if [ x$TARGET = x ] ; then
-    /bin/echo "TARGET did not get set."
-    /bin/echo "Safety check stopping script"
-    exit 1
-fi
+if len(args)<1:
+  print("Error: You must specify a <dest> and at least one <src>")
+  parser.print_help()
+  myexitcode()
 
-#---------------------------------------------------------------------
-# Validate access for first SRC (before deleting target)
+if len(args)<2:
+  print("Error: You must specify at least one source path")
+  parser.print_help()
+  myexitcode()
 
-# If multiple src, just use the first for validation:
-INSRC=`echo $INSRCLIST | /usr/bin/awk '{ print $1; }'`
+dest=args[0]
+srcs=args[1:]
 
-if [ $REMOTESRC -ne 0 ] ; then
-    SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
-else
-    SRCPATH=${INSRC}
-fi
-SRCDIR=`/usr/bin/dirname $SRCPATH`
+print("  DEBUG {0} => {1}".format(srcs,dest))
 
-# NOTE: we use ${INDST}/${TARGET} instead of ${INDST}/${TARGET}/${SRCDIR}
-# because we know it exists, no need to create it, tests our permissions,
-# and --dry-run doesn't write anything anyways.
+# Verify that we are running as root -----------------------------------------
 
-# not recursive, dirs copys as dir not going in,
-# --links, --perms --times --group --owner --devices --specials all from -a
+#if os.geteuid()!=0:
+#  print("backsnap will only run as root.")
+#  myexitcode()
 
-${TESTING} /usr/bin/ionice -c 3 /usr/bin/rsync \
-    --links --perms --times --group --owner \
-    --devices --specials --one-file-system --sparse \
-    --numeric-ids ${PERFOPTS} --dirs \
-    --dry-run \
-    ${INSRC} ${INDST}/${TARGET}
-exitval=$?
-# Errors which are acceptible for proceeding: 0,6,21,23,24,25
-case $exitval in
-    (0|6|21|23|24|25) ;;
-    *)
-        /bin/echo "Dry-run failed.  Bailing out."
-        exit 1
-        ;;
-esac
+# TEMP DIR -------------------------------------------------------------------
 
-# Unset these validation variables
-SRCPATH=
-SRCDIR=
+import tempfile
+tempdir = tempfile.mkdtemp()
 
-#---------------------------------------------------------------------
-# Delete target
+ONEXIT.append("""import shutil
+print("Cleaning up {0}".format(globals()["tempdir"]))
+shutil.rmtree(globals()["tempdir"])
+"""
+              );
 
-SAFETYCOUNT=`/bin/echo ${DSTPATH} | /usr/bin/wc -m`
-if [ $SAFETYCOUNT -lt 3 ] ; then
-    /bin/echo "Destination Path  < 3 characters"
-    /bin/echo "Safety check stopping script"
-    exit 1
-fi
+# DETERMINE DIRECTION --------------------------------------------------------
 
-/bin/echo
-/bin/echo "Clearing destination ${DSTPATH}/${TARGET} ..."
-${TESTING} ${DSTACCESS} /usr/bin/ionice -c 3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}
+# local: both are local
+# push: remote destination
+# pull: remote sources
 
-#---------------------------------------------------------------------
-# Determine the newest backup (for link-dest), newest that is not target.
+import re
+direction="local"
+hostmatchprog = re.compile(r"^([^/]+):(.+)")
+testdest = hostmatchprog.match(dest)
+testsrc = hostmatchprog.match(srcs[0])
+if testdest is not None:
+  if testsrc is not None:
+    print("Error: <dest> and <src> cannot both be remote")
+    parser.print_help()
+    myexitcode()
+  else:                                    # PUSH:
+    direction="push"
+    desthost = testdest.groups()[0]
+    destpath = testdest.groups()[1]
+    srcspath = srcs
+else:
+  destpath=dest
+  if testsrc is not None:                  # PULL:
+    direction="pull"
+    srcspath = []
+    for s in srcs:
+      ts = hostmatchprog.match(s)
+      if ts.groups()[0] != testsrc.groups()[0]:
+        print("Error: All remote <src> must be the same host")
+        parser.print_help()
+        myexitcode()
+      srcspath.append(ts.groups()[1])
+  else:                                    # LOCAL:
+    srcspath = srcs
+    direction="local"
 
-LINKTARG=
-NEWESTLIST=`${DSTACCESS} /bin/ls -1t ${DSTPATH}`
-for TT in $NEWESTLIST ; do
-    if [ x$TT != x$TARGET ] ; then
-        LINKTARG="${DSTPATH}/$TT"
-        break;
-    fi
-done
+print("  DEBUG: direction = {0}".format(direction))
 
-#-------------------------------------------------------------------------
-# Loop for each src specified
-for INSRC in $INSRCLIST; do
+# Setup reusable command arguments -------------------------------------------
 
-    /bin/echo
+ionice=['/usr/bin/ionice','-c','3']
 
-    # Parse INSRC
-    if [ $REMOTESRC -ne 0 ] ; then
-        SRCPATH=`/bin/echo ${INSRC} | /usr/bin/awk -F: '{print $2}'`
-    else
-        SRCPATH=${INSRC}
-    fi
-    SRCDIR=`/usr/bin/dirname $SRCPATH`
+iftesting=[]
+if (options.dryrun):
+  iftesting=['/bin/echo']
 
-    #---------------------------------------------------------------------
-    # If dest directory exists, clear it
-    /bin/echo "Clearing destination ${DSTPATH}/${TARGET}${SRCPATH} ..."
-    ${TESTING} ${DSTACCESS} /usr/bin/ionice -c 3 /bin/rm -rf --one-file-system --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
+destrun=[]
+destcp=['/bin/cp']
+if direction=="push":
+  destrun=['/usr/bin/ssh',desthost]
+  destcp=['/usr/bin/scp']
 
-    #---------------------------------------------------------------------
-    # Make a directory for the new backup
-    /bin/echo "Making destination ${DSTPATH}/${TARGET}${SRCDIR} ..."
-    ${TESTING} ${DSTACCESS} /bin/mkdir -p ${DSTPATH}/${TARGET}${SRCDIR} || exit 2;
+rsync_perfopts=[]
+if options.slownet and direction!='local':
+  rsync_perfopts.append('-z')   # -z means compress
+if direction=='local':
+  rsync_perfopts.append('-W')   # -W copies whole file, doesn't do rsync algo
+  # bash backsnap used -W on all fastnets, I'm not so sure about that.
+  # It really depends on the speed of the network vs. the speed of the hard
+  # disks.
 
-    #---------------------------------------------------------------------
-    # Take the snapshot
+# Setup RSYNC_RSH env --------------------------------------------------------
+myenv = os.environ
+if not direction=='local':
+  # RSYNC_RSH environment variable will be used by rsync
+  #   -c arcfour:         weak but fast encryption
+  #   -o Compression=no:  rsync already compresses, ssh doesn't need to
+  #   -x                  turns off X tunnelling (shouldn't be on anyhow)
+  myenv['RSYNC_SSH']="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
+else:
+  myenv['RSYNC_SSH']=""
 
-    # rsync the source directory into ${TARGET}, using ${NEWEST} as the link
-    # destination (that is, if the file is already in ${NEWEST}, hardlink
-    # instead of copying anew)
-    # -a        archive flags
-    # -x        don't cross filesystem boundaries
-    # -S                    handle sparse files as sparse files
-    # --password-file       password for ssh access
-    # --exclude-from        skip these directories
-    # --numeric-ids         important if UIDs/GIDs are not in sync
-    # --link-dest           If exists here, hardlink instead of creating anew
-    #
-    # These are not used because we start into a fresh directory:
-    # --delete              delete first (may not matter if target empty)
-    # --delete-excluded     delete newly excluded directories on taget
-    #
+# Get the excludes file into tempdir -----------------------------------------
 
-    /bin/echo "Taking snapshot of ${INSRC}  ..."
+import subprocess
+p = subprocess.Popen(ionice + destcp +
+                     ["{0}/.backsnap/excludes".format(dest),
+                      tempdir],
+                     env=myenv,stderr=subprocess.PIPE)
+sts = os.waitpid(p.pid,0)[1]
+if (sts!=0):
+  print("Error: excludes file out found at {0}/.backsnap/excludes".format(dest))
+  myexitcode()
+excludesfile=tempdir+"/excludes"
 
-    if [ x$LINKTARG != x ] ; then
-        LINKPARAM=--link-dest=${LINKTARG}${SRCPATH}
-    else
-        LINKPARAM=
-    fi
+# Verify destination exists --------------------------------------------------
 
-    ${TESTING} /usr/bin/ionice -c 3 /usr/bin/rsync --archive \
-        --one-file-system --sparse \
-        --exclude-from=${EXCLUDE_FILE} \
-        --numeric-ids ${LINKPARAM} ${PERFOPTS} \
-        ${INSRC} ${INDST}/${TARGET}${SRCDIR}
-    exitval=$?
-    # Errors which are acceptible for proceeding: 0,6,21,23,24,25
-    case $exitval in
-        (0|6|21|23|24|25) ;;
-        *)
-            /bin/echo "Bailing out."
-            exit 1
-            ;;
-    esac
+p = subprocess.Popen(destrun + ['/usr/bin/test','-d',destpath],
+                     env=myenv,stderr=subprocess.PIPE)
+sts = os.waitpid(p.pid,0)[1]
+if sts != 0:
+  print("Error: Destination {0} not found".format(dest))
+  myexitcode()
 
-done
+# Determine the rotation target ----------------------------------------------
 
-# Mark target as new, after we are finished with it
-${TESTING} ${DSTACCESS} /usr/bin/touch ${DSTPATH}/${TARGET}
+if direction=='push':
+  p = subprocess.Popen(destrun + ['/bin/cat',
+                                  "{0}/.backsnap/count".format(destpath)],
+                       env=myenv,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+  output = p.communicate()[0]
+  if p.returncode!=0 or len(output)<1:
+    count=0
+  else:
+    if isinstance(output,bytes):
+      count = int(output.decode())
+else:
+  fd = os.open("{0}/.backsnap/count".format(destpath),
+               os.O_RDONLY)
+  if (fd<1):
+    print("Error: trouble reading count")
+    myexitcode()
+  output = os.read(fd,10)
+  count=int(output.decode())
+  os.close(fd)
 
-# ------------------------------------------------------------------
-# Update the count only after we are done (if it was only partial, the
-# count will be the same, so the next backup will just try again in the
-# same slot)
+if count == 0:
+  # Pre tower strategy, do last level once
+  target='LEVEL{0}'.format(options.depth)
+else:
+  modulus=1
+  level=1
+  while level<options.depth:
+    modulus=modulus*2
+    mod=count % modulus
+    if mod!=0:
+      break
+    level+=1
+  target='LEVEL{0}'.format(level)
 
-COUNT=`/usr/bin/expr $COUNT + 1`
-if [ $REMOTEDST -ne 0 ] ; then
-    ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.backsnap/count"
-else 
-    if [ x$TESTING = x ] ; then
-        /bin/echo $COUNT > ${DSTPATH}/.backsnap/count
-    fi
-fi
+if len(target)<1:
+  print("Error: target did not get set (this is a bug)")
+  myexitcode()
 
-exit 0
+# Validate src access prior to dest deletion ---------------------------------
+
+# NOTES  We use dest/target instead of dest/target/srcdir because we know
+#        it exists, no need to create it, it tests our permissions, and
+#        --dry-run doesn't write anything anyhow.
+#        It is not recursive, dir copies as dir not going in,
+#        --links, --perms, --times, --group, --owner, --devices, --specials
+#        are all from -a
+cmd = iftesting + ionice
+cmd.extend(['/usr/bin/rsync','--links','--perms','--times','--group','--owner',
+        '--devices','--specials','--one-file-system','--sparse',
+        '--numeric-ids','--dirs','--dry-run'])  # this is ALWAYS dry run
+cmd.extend(rsync_perfopts)
+cmd.extend([os.path.dirname(srcspath[0]),
+            "{0}/{1}".format(dest,target)])
+p = subprocess.Popen(cmd, env=myenv)
+p.communicate()   # or: sts = os.waitpid(p.pid,0)[1]
+if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
+  print("Error: dry-run failed.  Aborting (nothing has been deleted)")
+  myexitcode()
+
+# Delete the target directory -----------------------------------------------
+
+cmd = iftesting + destrun + ionice
+cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
+cmd.append("{0}/{1}".format(destpath,target))
+p = subprocess.Popen(cmd, env=myenv)
+p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+if p.returncode!=0:
+  print("Error: trouble deleting the target directory")
+  myexitcode()
+
+# Determine link-targ --------------------------------------------------------
+
+cmd = destrun[:]
+cmd.extend(['/bin/ls','-1t',destpath])
+p = subprocess.Popen(cmd, env=myenv, stdout=subprocess.PIPE)
+output = p.communicate()[0]
+if isinstance(output,bytes):
+  output = output.decode()
+newestlist = output.splitlines()
+linktarg=''
+for tt in newestlist:
+  if tt!=target:
+    linktarg="{0}/{1}".format(destpath,tt)
+    break
+
+# MAIN LOOP (per srcs) -------------------------------------------------------
+
+for s in srcs:
+
+  if direction=='pull':
+    ts = hostmatchprog.match(s)
+    shost = ts.groups()[0]
+    spath = ts.groups()[1]
+  else:
+    shost = ''
+    spath = s
+  sdir=os.path.dirname(spath)
+
+  print()
+
+  # If destdir, clear it -----------------------------------------------------
+  cmd = iftesting + destrun + ionice
+  cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
+  cmd.append("{0}/{1}{2}".format(destpath,target,spath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble deleting the target directory")
+    myexitcode()
+
+  # Make destdir -------------------------------------------------------------
+  cmd = iftesting + destrun
+  cmd.extend(['/bin/mkdir','-p'])
+  cmd.append("{0}/{1}{2}".format(destpath,target,spath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble making the target directory")
+    myexitcode()
+
+  # rsync --------------------------------------------------------------------
+  # rsync the source directory into target using linktarg as the link
+  # destination (that is, if the file is already in linktarg and equal,
+  # hardlink instead of copying anew)
+  # -a        archive flags
+  # -x        don't cross filesystem boundaries
+  # -S                    handle sparse files as sparse files
+  # --password-file       password for ssh access
+  # --exclude-from        skip these directories
+  # --numeric-ids         important if UIDs/GIDs are not in sync
+  # --link-dest           If exists here, hardlink instead of creating anew
+  #
+  # These are not used because we start into a fresh directory:
+  # --delete              delete first (may not matter if target empty)
+  # --delete-excluded     delete newly excluded directories on taget
+  print("Snapshoting {0} . . .".format(sdir))
+  cmd = iftesting + ionice
+  cmd.extend(['/usr/bin/rsync','--archive','--one-file-system','--sparse',
+              '--exclude-from={0}'.format(excludesfile),
+              '--numeric-ids'])
+  cmd.extend(rsync_perfopts)
+  if (len(linktarg)>0):
+    cmd.append('--link-dest={0}{1}'.format(linktarg,sdir)) # spath wasn't workn
+  cmd.append(s)
+  cmd.append("{0}/{1}{2}".format(dest,target,sdir))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode not in (0,6,21,23,24,25):
+    print("Error: trouble rsyncing the data")
+    myexitcode()
+
+# Mark target as new after we are finished with it --------------------------
+
+cmd = iftesting + destrun
+cmd.append('/usr/bin/touch')
+cmd.append("{0}/{1}".format(destpath,target))
+p = subprocess.Popen(cmd, env=myenv)
+p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+if p.returncode!=0:
+  print("Error: trouble updating mtime at target")
+  myexitcode()
+
+# Update the count ----------------------------------------------------------
+# If a backup fails, it doesn't get this far and the count is not updated,
+# then next time it tries over the same slot, which is desirable.
+count+=1
+if direction=='push':
+  cmd = iftesting + destrun
+  # The next is all one argument, it's handled on the remote machine:
+  cmd.append("/bin/echo {0} > {1}/.backsnap/count".format(count,destpath))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble updating count")
+    myexitcode()
+else:
+  if options.dryrun==0:
+    fd = os.open("{0}/.backsnap/count".format(destpath),
+                 os.O_WRONLY|os.O_TRUNC)
+    if (fd<1):
+      print("Error: trouble updating count")
+      myexitcode()
+    os.write(fd,str(count).encode())
+    os.close(fd)
+
+print("Finished.")
+myexitcode(exitval=0)
