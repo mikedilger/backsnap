@@ -167,10 +167,10 @@ parser.add_option("--skipsystem",
                   default=False,
                   help="Skip all unmodified system files in the backup "
                   "[default: %default]")
-parser.add_option("--maxbackups",
+parser.add_option("--depth",
                   action="store",
                   type="int",
-                  dest="maxbackups",
+                  dest="depth",
                   default=8,
                   help="Number of levels deep for tower of hanoi "
                   "[default: %default]")
@@ -331,11 +331,11 @@ else:
 
 if count == 0:
   # Pre tower strategy, do last level once
-  target='LEVEL{0}'.format(options.maxbackups)
+  target='LEVEL{0}'.format(options.depth)
 else:
   modulus=1
   level=1
-  while level<options.maxbackups:
+  while level<options.depth:
     modulus=modulus*2
     mod=count % modulus
     if mod!=0:
