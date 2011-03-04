@@ -74,7 +74,7 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.4"
+VERSION="0.5"
 LAST_MODIFICATION="4 March 2011"
 
 # IMPORTS --------------------------------------------------------------------
