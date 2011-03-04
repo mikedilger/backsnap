@@ -362,6 +362,7 @@ cmd.extend(['/usr/bin/rsync','--links','--perms','--times','--group','--owner',
 cmd.extend(rsync_perfopts)
 cmd.extend([os.path.dirname(srcspath[0]),
             "{0}/{1}".format(dest,target)])
+print("Verifying access: {0}".format(cmd))
 p = subprocess.Popen(cmd, env=myenv)
 p.communicate()   # or: sts = os.waitpid(p.pid,0)[1]
 if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
@@ -373,6 +374,7 @@ if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
 cmd = iftesting + destrun + ionice
 cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
 cmd.append("{0}/{1}".format(destpath,target))
+print("Deleting destination: {0}".format(cmd))
 p = subprocess.Popen(cmd, env=myenv)
 p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
 if p.returncode!=0:
@@ -454,6 +456,7 @@ for s in srcs:
     cmd.append('--link-dest={0}{1}'.format(linktarg,sdir)) # spath wasn't workn
   cmd.append(s)
   cmd.append("{0}/{1}{2}".format(dest,target,sdir))
+  print("Syncing: {0}".format(cmd))
   p = subprocess.Popen(cmd, env=myenv)
   p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
   if p.returncode not in (0,6,21,23,24,25):
