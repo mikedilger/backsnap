@@ -40,11 +40,11 @@ Features:
   8x of the original space, in practice it is closer to 2x)
 * Supports both push and pull architectures
 * Is portage-aware, optionally skipping system files which have not been
-  altered from the package default
+  altered from the package default (THIS FUNCTIONALITY IS INCOMPLETE)
 * Backups are fully functional filesystems, so they are mountable (read-only
-  please) and recovery is a cinch.  (If we compressed them we wouldn't save
-  space because we'd lose the hardlink savings)
-* Encrypted transit using ssh
+  please) and recovery is a cinch.  (You might think compressing them would
+  save space, but it wouldn't because we'd lose the hardlink savings)
+* Encrypted network transit using ssh
 * Uses nice and ionice so your system doesn't bog down during operation
 * Optionally uses network compression for slow (or expensive) networks
 
@@ -74,16 +74,12 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.4"
-LAST_MODIFICATION="18 February 2011"
+VERSION="0.4.1"
+LAST_MODIFICATION="24 March 2011"
 
 # IMPORTS --------------------------------------------------------------------
 
-import os.path,os
-try:
-  import cPickle as pickle
-except:
-  import pickle
+import os
 import sys
 import string
 import fnmatch
@@ -155,18 +151,20 @@ parser.add_option("--rootdir",
                   dest="rootdir",
                   default="/",
                   help="Root directory of the source [default: %default]")
-parser.add_option("--mtimeonly",
-                  action="store_true",
-                  dest="mtimeonly",
-                  default=False,
-                  help="Compare system files based on mtime only (skip md5) "
-                  "[default: %default]")
-parser.add_option("--skipsystem",
-                  action="store_true",
-                  dest="skipsystem",
-                  default=False,
-                  help="Skip all unmodified system files in the backup "
-                  "[default: %default]")
+# --skipsystem will use nongentoo, but not yet implemented
+#parser.add_option("--skipsystem",
+#                  action="store_true",
+#                  dest="skipsystem",
+#                  default=False,
+#                  help="Skip all unmodified system files in the backup "
+#                  "[default: %default]")
+# --mtimeonly modifies skipsystem, not yet implemented
+#parser.add_option("--mtimeonly",
+#                  action="store_true",
+#                  dest="mtimeonly",
+#                  default=False,
+#                  help="Compare system files based on mtime only (skip md5) "
+#                  "[default: %default]")
 parser.add_option("--depth",
                   action="store",
                   type="int",

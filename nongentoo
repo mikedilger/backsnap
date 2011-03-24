@@ -1,6 +1,10 @@
 #!/bin/env python3
 # -*- mode: python; -*-
 #
+# nongentoo
+# by Michael Dilger
+# idea originally from Vincent Delft <vincent_delft@yahoo.com>
+#
 # This program prints out all files which are not pristine gentoo portage
 # package owned.  That includes all user files, and all package files which
 # have been modified (such as config files).
