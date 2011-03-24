@@ -74,7 +74,7 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.4.1"
+VERSION="0.5.2"
 LAST_MODIFICATION="24 March 2011"
 
 # IMPORTS --------------------------------------------------------------------
@@ -218,7 +218,7 @@ shutil.rmtree(globals()["tempdir"])
 
 import re
 direction="local"
-hostmatchprog = re.compile(r"^([^/]+):(.+)")
+hostmatchprog = re.compile(r"^([^/]+):(.+)$")
 testdest = hostmatchprog.match(dest)
 testsrc = hostmatchprog.match(srcs[0])
 if testdest is not None:
@@ -235,17 +235,18 @@ else:
   destpath=dest
   if testsrc is not None:                  # PULL:
     direction="pull"
+    srchost = testsrc.groups()[0]
     srcspath = []
     for s in srcs:
       ts = hostmatchprog.match(s)
-      if ts.groups()[0] != testsrc.groups()[0]:
+      if ts.groups()[0] != srchost:
         print("Error: All remote <src> must be the same host")
         parser.print_help()
         myexitcode()
       srcspath.append(ts.groups()[1])
   else:                                    # LOCAL:
-    srcspath = srcs
     direction="local"
+    srcspath = srcs
 
 print("  DEBUG: direction = {0}".format(direction))
 
@@ -358,8 +359,12 @@ cmd.extend(['/usr/bin/rsync','--links','--perms','--times','--group','--owner',
         '--devices','--specials','--one-file-system','--sparse',
         '--numeric-ids','--dirs','--dry-run'])  # this is ALWAYS dry run
 cmd.extend(rsync_perfopts)
-cmd.extend([os.path.dirname(srcspath[0]),
+testsrc=os.path.dirname(srcspath[0])
+if direction=='pull':
+  testsrc="{0}:{1}".format(srchost,testsrc);
+cmd.extend([testsrc,
             "{0}/{1}".format(dest,target)])
+print("Verifying access: {0}".format(cmd))
 p = subprocess.Popen(cmd, env=myenv)
 p.communicate()   # or: sts = os.waitpid(p.pid,0)[1]
 if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
@@ -371,6 +376,7 @@ if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
 cmd = iftesting + destrun + ionice
 cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
 cmd.append("{0}/{1}".format(destpath,target))
+print("Deleting destination: {0}".format(cmd))
 p = subprocess.Popen(cmd, env=myenv)
 p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
 if p.returncode!=0:
@@ -442,7 +448,7 @@ for s in srcs:
   # These are not used because we start into a fresh directory:
   # --delete              delete first (may not matter if target empty)
   # --delete-excluded     delete newly excluded directories on taget
-  print("Snapshoting {0} . . .".format(sdir))
+  print("Snapshoting {0} . . .".format(s))
   cmd = iftesting + ionice
   cmd.extend(['/usr/bin/rsync','--archive','--one-file-system','--sparse',
               '--exclude-from={0}'.format(excludesfile),
@@ -452,6 +458,7 @@ for s in srcs:
     cmd.append('--link-dest={0}{1}'.format(linktarg,sdir)) # spath wasn't workn
   cmd.append(s)
   cmd.append("{0}/{1}{2}".format(dest,target,sdir))
+  print("Syncing: {0}".format(cmd))
   p = subprocess.Popen(cmd, env=myenv)
   p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
   if p.returncode not in (0,6,21,23,24,25):
