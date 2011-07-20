@@ -1,5 +1,25 @@
 #!/usr/bin/perl
-# by Kevin Korb, modified slightly by Mike Dilger
+
+# This code is Copyright (c) Optimal Computing Limited of New Zealand, 2011.
+# mike@optimalcomputing.co.nz  Michael Dilger
+# Original by Kevin Korb
+#
+# This file is part of Backsnap.
+#
+# Backsnap is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Backsnap is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
 #H# Diffs 2 rsync backup trees to show what files have changed.
 #H# Usage:
 #H# backsnap_diff <dir1> <dir2>
