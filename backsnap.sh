@@ -134,6 +134,8 @@ function usage {
 INDSTISSET=0
 INDST=
 INSRCLIST=
+LNICE=
+RNICE=
 LIONICE=
 RIONICE=
 for PARAM in $@; do
@@ -155,14 +157,19 @@ for PARAM in $@; do
                 --dry-run)
                     TESTING="/bin/echo"
                     ;;
+                --local-nice)
+                    LNICE="nice"
+                    ;;
+                --remote-nice)
+                    RNICE="nice"
+                    ;;
                 --local-ionice)
                     hash ionice 2>&- || { echo >&2 "Cannot find ionice.  Aborting."; exit 1; }
-                    LIONICE=`ionice -c 3`
+                    LIONICE="ionice -c 3"
                     ;;
                 --remote-ionice)
-                    # Here you must specify the path
                     shift
-                    RIONICE="$1 -c 3"
+                    RIONICE="ionice -c 3"
                     ;;
                 -*)
                     /bin/echo "Option $PARAM is not recognized.  Bailing out."
@@ -233,7 +240,7 @@ fi
 add_on_exit rm -rf --preserve-root "$TMPDIR"
 
 if [ $REMOTEDST -ne 0 ] ; then
-    ${LIONICE} /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/filter ${TMPDIR}
+    ${LNICE} ${LIONICE} /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/filter ${TMPDIR}
     if [ $? -ne 0 ] ; then
         /bin/echo "Failed to find $DSTHOST:$DSTPATH/.backsnap/config or $DSTHOST:$DSTPATH/.backsnap/filter"
         exit 1
@@ -263,7 +270,7 @@ else
     #    -o Compression=no:   rsync already compresses, ssh doesn't need to
     #    -x:                  Turn off X tunnelling (shouldn't be on anyways)
     # export RSYNC_RSH="/usr/bin/ssh -c arcfour -o Compression=no -x"
-    export RSYNC_RSH="${RIONICE} /usr/bin/ssh -c arcfour -o Compression=no -x"
+    export RSYNC_RSH="${RNICE} ${RIONICE} /usr/bin/ssh -c arcfour -o Compression=no -x"
 fi
 
 #---------------------------------------------------------------------
@@ -333,7 +340,7 @@ SRCDIR=`dirname $SRCPATH`
 # not recursive, dirs copys as dir not going in,
 # --links, --perms --times --group --owner --devices --specials all from -a
 
-${TESTING} ${LIONICE} rsync \
+${TESTING} ${LNICE} ${LIONICE} rsync \
     --links --perms --times --group --owner \
     --devices --specials --one-file-system --sparse \
     --numeric-ids ${PERFOPTS} --dirs \
@@ -365,7 +372,7 @@ fi
 
 /bin/echo
 /bin/echo "Clearing destination ${DSTPATH}/${TARGET} ..."
-${TESTING} ${DSTACCESS} ${RIONICE} rm -rf --preserve-root ${DSTPATH}/${TARGET}
+${TESTING} ${DSTACCESS} ${RNICE} ${RIONICE} rm -rf --preserve-root ${DSTPATH}/${TARGET}
 
 #---------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
@@ -396,7 +403,7 @@ for INSRC in $INSRCLIST; do
     #---------------------------------------------------------------------
     # If dest directory exists, clear it
     /bin/echo "Clearing destination ${DSTPATH}/${TARGET}${SRCPATH} ..."
-    ${TESTING} ${DSTACCESS} ${RIONICE} rm -rf --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
+    ${TESTING} ${DSTACCESS} ${RNICE} ${RIONICE} rm -rf --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
 
     #---------------------------------------------------------------------
     # Make a directory for the new backup
@@ -430,7 +437,7 @@ for INSRC in $INSRCLIST; do
         LINKPARAM=
     fi
 
-    ${TESTING} ${LIONICE} rsync --archive \
+    ${TESTING} ${LNICE} ${LIONICE} rsync --archive \
         --one-file-system --sparse \
         --filter=._${FILTER_FILE} \
         --numeric-ids ${LINKPARAM} ${PERFOPTS} \
