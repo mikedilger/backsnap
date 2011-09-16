@@ -79,8 +79,8 @@
 #-------------------------------------------------------------------------
 # Avoid accidental use of $PATH
 unset PATH
+PATH=/bin:/usr/bin:/usr/local/bin
 
-#-------------------------------------------------------------------------
 # Find programs
 PROGS="touch mktemp id rm expr mkdir dirname awk rsync"
 for p in ${PROGS} ; do
@@ -156,8 +156,8 @@ for PARAM in $@; do
                     TESTING="/bin/echo"
                     ;;
                 --local-ionice)
-                    # Try to use ionice
-                    LIONICE=`which ionice`
+                    hash ionice 2>&- || { echo >&2 "Cannot find ionice.  Aborting."; exit 1; }
+                    LIONICE=`ionice`
                     ;;
                 --remote-ionice)
                     # Here you must specify the path
