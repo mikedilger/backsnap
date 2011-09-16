@@ -82,28 +82,14 @@ unset PATH
 
 #-------------------------------------------------------------------------
 # Find programs
-TOUCH=`which touch`
-if [ ! -x ${TOUCH} ] ; then echo "Where is touch?"; exit 1; fi
-MKTEMP=`which mktemp`
-if [ ! -x ${MKTEMP} ] ; then echo "Where is mktemp?"; exit 1; fi
-ID=`which id`
-if [ ! -x ${ID} ] ; then echo "Where is id?"; exit 1; fi
-RM=`which rm`
-if [ ! -x ${RM} ] ; then echo "Where is rm?"; exit 1; fi
-EXPR=`which expr`
-if [ ! -x ${EXPR} ] ; then echo "Where is expr?"; exit 1; fi
-MKDIR=`which mkdir`
-if [ ! -x ${MKDIR} ] ; then echo "Where is mkdir?"; exit 1; fi
-DIRNAME=`which dirname`
-if [ ! -x ${DIRNAME} ] ; then echo "Where is dirname?"; exit 1; fi
-AWK=`which awk`
-if [ ! -x ${AWK} ] ; then echo "Where is awk?"; exit 1; fi
-RSYNC=`which rsync`
-if [ ! -x ${RSYNC} ] ; then echo "Where is rsync?"; exit 1; fi
+PROGS="touch mktemp id rm expr mkdir dirname awk rsync"
+for p in ${PROGS} ; do
+  hash ${p} 2>&- || { echo >&2 "Cannot find ${p}.  Aborting."; exit 1; }
+done
 
 #-------------------------------------------------------------------------
 # Verify we are running as root
-THISUID=`${ID} -u`
+THISUID=`id -u`
 if [ $THISUID -ne 0 ] ; then
     /bin/echo "This script will only run as root."
     exit 1
@@ -217,9 +203,9 @@ fi
 REMOTE=0
 # note: multiple INSRCLIST is still just 1 line, so this is ok:
 REMOTESRC=`/bin/echo $INSRCLIST | /bin/grep : | /usr/bin/wc -l`
-REMOTE=`${EXPR} $REMOTE + $REMOTESRC`
+REMOTE=`expr $REMOTE + $REMOTESRC`
 REMOTEDST=`/bin/echo $INDST | /bin/grep : | /usr/bin/wc -l`
-REMOTE=`${EXPR} $REMOTE + $REMOTEDST`
+REMOTE=`expr $REMOTE + $REMOTEDST`
 if [ $REMOTE -gt 1 ] ; then
     echo "At most one of <src> or <dst> may be local"
     exit 1
@@ -227,8 +213,8 @@ fi
 
 # Parse INDST
 if [ $REMOTEDST -ne 0 ] ; then
-    DSTHOST=`/bin/echo ${INDST} | ${AWK} -F: '{print $1}'`
-    DSTPATH=`/bin/echo ${INDST} | ${AWK} -F: '{print $2}'`
+    DSTHOST=`/bin/echo ${INDST} | awk -F: '{print $1}'`
+    DSTPATH=`/bin/echo ${INDST} | awk -F: '{print $2}'`
     DSTACCESS="/usr/bin/ssh ${DSTHOST}"
 else
     DSTHOST=
@@ -239,12 +225,12 @@ fi
 #-------------------------------------------------------------------------
 # Deal with possibly remote config and filter files
 
-TMPDIR=`${MKTEMP} -d`
+TMPDIR=`mktemp -d`
 if [ x$TMPDIR = x ] ; then
   echo Failed to make temp directory.
   exit 1
 fi
-add_on_exit ${RM} -rf --preserve-root "$TMPDIR"
+add_on_exit rm -rf --preserve-root "$TMPDIR"
 
 if [ $REMOTEDST -ne 0 ] ; then
     ${LIONICE} /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/filter ${TMPDIR}
@@ -331,14 +317,14 @@ fi
 # Validate access for first SRC (before deleting target)
 
 # If multiple src, just use the first for validation:
-INSRC=`echo $INSRCLIST | ${AWK} '{ print $1; }'`
+INSRC=`echo $INSRCLIST | awk '{ print $1; }'`
 
 if [ $REMOTESRC -ne 0 ] ; then
-    SRCPATH=`/bin/echo ${INSRC} | ${AWK} -F: '{print $2}'`
+    SRCPATH=`/bin/echo ${INSRC} | awk -F: '{print $2}'`
 else
     SRCPATH=${INSRC}
 fi
-SRCDIR=`${DIRNAME} $SRCPATH`
+SRCDIR=`dirname $SRCPATH`
 
 # NOTE: we use ${INDST}/${TARGET} instead of ${INDST}/${TARGET}/${SRCDIR}
 # because we know it exists, no need to create it, tests our permissions,
@@ -347,7 +333,7 @@ SRCDIR=`${DIRNAME} $SRCPATH`
 # not recursive, dirs copys as dir not going in,
 # --links, --perms --times --group --owner --devices --specials all from -a
 
-${TESTING} ${LIONICE} ${RSYNC} \
+${TESTING} ${LIONICE} rsync \
     --links --perms --times --group --owner \
     --devices --specials --one-file-system --sparse \
     --numeric-ids ${PERFOPTS} --dirs \
@@ -379,7 +365,7 @@ fi
 
 /bin/echo
 /bin/echo "Clearing destination ${DSTPATH}/${TARGET} ..."
-${TESTING} ${DSTACCESS} ${RIONICE} ${RM} -rf --preserve-root ${DSTPATH}/${TARGET}
+${TESTING} ${DSTACCESS} ${RIONICE} rm -rf --preserve-root ${DSTPATH}/${TARGET}
 
 #---------------------------------------------------------------------
 # Determine the newest backup (for link-dest), newest that is not target.
@@ -401,21 +387,21 @@ for INSRC in $INSRCLIST; do
 
     # Parse INSRC
     if [ $REMOTESRC -ne 0 ] ; then
-        SRCPATH=`/bin/echo ${INSRC} | ${AWK} -F: '{print $2}'`
+        SRCPATH=`/bin/echo ${INSRC} | awk -F: '{print $2}'`
     else
         SRCPATH=${INSRC}
     fi
-    SRCDIR=`${DIRNAME} $SRCPATH`
+    SRCDIR=`dirname $SRCPATH`
 
     #---------------------------------------------------------------------
     # If dest directory exists, clear it
     /bin/echo "Clearing destination ${DSTPATH}/${TARGET}${SRCPATH} ..."
-    ${TESTING} ${DSTACCESS} ${RIONICE} ${RM} -rf --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
+    ${TESTING} ${DSTACCESS} ${RIONICE} rm -rf --preserve-root ${DSTPATH}/${TARGET}${SRCPATH}
 
     #---------------------------------------------------------------------
     # Make a directory for the new backup
     /bin/echo "Making destination ${DSTPATH}/${TARGET}${SRCDIR} ..."
-    ${TESTING} ${DSTACCESS} ${MKDIR} -p ${DSTPATH}/${TARGET}${SRCDIR} || exit 2;
+    ${TESTING} ${DSTACCESS} mkdir -p ${DSTPATH}/${TARGET}${SRCDIR} || exit 2;
 
     #---------------------------------------------------------------------
     # Take the snapshot
@@ -444,7 +430,7 @@ for INSRC in $INSRCLIST; do
         LINKPARAM=
     fi
 
-    ${TESTING} ${LIONICE} ${RSYNC} --archive \
+    ${TESTING} ${LIONICE} rsync --archive \
         --one-file-system --sparse \
         --filter=._${FILTER_FILE} \
         --numeric-ids ${LINKPARAM} ${PERFOPTS} \
@@ -462,7 +448,7 @@ for INSRC in $INSRCLIST; do
 done
 
 # Mark target as new, after we are finished with it
-${TESTING} ${DSTACCESS} ${TOUCH} ${DSTPATH}/${TARGET}
+${TESTING} ${DSTACCESS} touch ${DSTPATH}/${TARGET}
 
 # ------------------------------------------------------------------
 # Update the count only after we are done (if it was only partial, the
