@@ -21,7 +21,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#VERSION=0.3
+#VERSION=0.3.1
 #
 # Usage:  backsnap <dest> <src> [<src> ...]
 #
@@ -31,10 +31,13 @@
 #     Either <dest> or <src> (but not both) may be a remote path in the
 #     form <hostname>:<path>.   In these cases, ssh is used.
 #
+# NOTE ON VERSION 0.3.1:
+# Excludes file gone; now using rsync filter file
+# 
 # NOTE ON VERSION 0.3:
 # Configiration data must be in <dest>/.backsnap in these files:
 #    <dest>/.backsnap/config
-#    <dest>/.backsnap/excludes
+#    <dest>/.backsnap/filter
 #    <dest>/.backsnap/count
 # Configuration information in /etc/backsnap is no longer relevant.  That
 # is because backsnap operation is no longer conceived to be per-system
@@ -202,26 +205,30 @@ else
 fi
 
 #-------------------------------------------------------------------------
-# Deal with possibly remote config and excludes files
+# Deal with possibly remote config and filter files
 
-TMPDIR=`/usr/bin/mktemp -d`
-add_on_exit /bin/rm -rf --one-file-system --preserve-root $TMPDIR
+TMPDIR=`mktemp -d`
+if [ x$TMPDIR = x ] ; then
+  echo Failed to make temp directory.
+  exit 1
+fi
+add_on_exit /bin/rm -rf --preserve-root "$TMPDIR"
 
 if [ $REMOTEDST -ne 0 ] ; then
-    /usr/bin/ionice -c 3 /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/excludes $TMPDIR
+    /usr/bin/ionice -c 3 /usr/bin/scp $DSTHOST:$DSTPATH/.backsnap/config $DSTHOST:$DSTPATH/.backsnap/filter $TMPDIR
     if [ $? -ne 0 ] ; then
-        /bin/echo "Failed to find $DSTHOST:$DSTPATH/.backsnap/config or $DSTHOST:$DSTPATH/.backsnap/excludes"
+        /bin/echo "Failed to find $DSTHOST:$DSTPATH/.backsnap/config or $DSTHOST:$DSTPATH/.backsnap/filter"
         exit 1
     fi
 else
-    /bin/cp $DSTPATH/.backsnap/config $DSTPATH/.backsnap/excludes $TMPDIR
+    /bin/cp $DSTPATH/.backsnap/config $DSTPATH/.backsnap/filter $TMPDIR
     if [ $? -ne 0 ] ; then
-        /bin/echo "Failed to find $DSTPATH/.backsnap/config or $DSTPATH/.backsnap/excludes"
+        /bin/echo "Failed to find $DSTPATH/.backsnap/config or $DSTPATH/.backsnap/filter"
         exit 1
     fi
 fi
 source $TMPDIR/config
-EXCLUDE_FILE=$TMPDIR/excludes
+FILTER_FILE=$TMPDIR/filter
 
 #-------------------------------------------------------------------------
 # Setup a few general parameters
@@ -407,7 +414,7 @@ for INSRC in $INSRCLIST; do
 
     ${TESTING} /usr/bin/ionice -c 3 /usr/bin/rsync --archive \
         --one-file-system --sparse \
-        --exclude-from=${EXCLUDE_FILE} \
+        --filter=._${FILTER_FILE} \
         --numeric-ids ${LINKPARAM} ${PERFOPTS} \
         ${INSRC} ${INDST}/${TARGET}${SRCDIR}
     exitval=$?

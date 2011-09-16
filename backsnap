@@ -24,10 +24,9 @@
 MANUAL="""
 You must first configure the backup destination, in particular the excludes
 file.   At the destination, there must exist a .backsnap directory and an
-excludes file:
+filter file:
 
-  <dest>/.backsnap/excludes  - list of directories and files to exclude,
-                               one path per line.
+  <dest>/.backsnap/filter    - rsync filter file (man rsync)
 
 Backsnap will create and manage other files in this directory you can
 safely ignore (e.g. count, filelist).
@@ -93,8 +92,8 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.5.2"
-LAST_MODIFICATION="24 March 2011"
+VERSION="0.5.3"
+LAST_MODIFICATION="15 September 2011"
 
 # IMPORTS --------------------------------------------------------------------
 
@@ -303,18 +302,18 @@ if not direction=='local':
 else:
   myenv['RSYNC_SSH']=""
 
-# Get the excludes file into tempdir -----------------------------------------
+# Get the filter file into tempdir -------------------------------------------
 
 import subprocess
 p = subprocess.Popen(ionice + destcp +
-                     ["{0}/.backsnap/excludes".format(dest),
+                     ["{0}/.backsnap/filter".format(dest),
                       tempdir],
                      env=myenv,stderr=subprocess.PIPE)
 sts = os.waitpid(p.pid,0)[1]
 if (sts!=0):
-  print("Error: excludes file out found at {0}/.backsnap/excludes".format(dest))
+  print("Error: filter file out found at {0}/.backsnap/filter".format(dest))
   myexitcode()
-excludesfile=tempdir+"/excludes"
+filterfile=tempdir+"/filter"
 
 # Verify destination exists --------------------------------------------------
 
@@ -460,7 +459,7 @@ for s in srcs:
   # -x        don't cross filesystem boundaries
   # -S                    handle sparse files as sparse files
   # --password-file       password for ssh access
-  # --exclude-from        skip these directories
+  # --filter              Use this filter rule (we merge a file)
   # --numeric-ids         important if UIDs/GIDs are not in sync
   # --link-dest           If exists here, hardlink instead of creating anew
   #
@@ -470,7 +469,7 @@ for s in srcs:
   print("Snapshoting {0} . . .".format(s))
   cmd = iftesting + ionice
   cmd.extend(['/usr/bin/rsync','--archive','--one-file-system','--sparse',
-              '--exclude-from={0}'.format(excludesfile),
+              '--filter=._{0}'.format(filterfile),
               '--numeric-ids'])
   cmd.extend(rsync_perfopts)
   if (len(linktarg)>0):
