@@ -207,7 +207,12 @@ fi
 #-------------------------------------------------------------------------
 # Deal with possibly remote config and filter files
 
-TMPDIR=`mktemp -d`
+if [ -x /bin/mktemp ] ; then MKTEMP='/bin/mktemp'
+elif [ -x /usr/bin/mktemp ] ; then MKTEMP='/usr/bin/mktemp'
+else
+  echo Failed to find mktemp.
+fi
+TMPDIR=`${MKTEMP} -d`
 if [ x$TMPDIR = x ] ; then
   echo Failed to make temp directory.
   exit 1
