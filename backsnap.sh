@@ -157,7 +157,7 @@ for PARAM in $@; do
                     ;;
                 --local-ionice)
                     hash ionice 2>&- || { echo >&2 "Cannot find ionice.  Aborting."; exit 1; }
-                    LIONICE=`ionice`
+                    LIONICE=`ionice -c 3`
                     ;;
                 --remote-ionice)
                     # Here you must specify the path
