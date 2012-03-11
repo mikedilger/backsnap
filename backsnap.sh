@@ -33,7 +33,7 @@
 #
 # NOTE ON VERSION 0.3.1:
 # Excludes file gone; now using rsync filter file
-# 
+#
 # NOTE ON VERSION 0.3:
 # Configiration data must be in <dest>/.backsnap in these files:
 #    <dest>/.backsnap/config
@@ -465,7 +465,7 @@ ${TESTING} ${DSTACCESS} touch ${DSTPATH}/${TARGET}
 COUNT=`/usr/bin/expr $COUNT + 1`
 if [ $REMOTEDST -ne 0 ] ; then
     ${TESTING} ${DSTACCESS} "/bin/echo $COUNT > ${DSTPATH}/.backsnap/count"
-else 
+else
     if [ x$TESTING = x ] ; then
         /bin/echo $COUNT > ${DSTPATH}/.backsnap/count
     fi
