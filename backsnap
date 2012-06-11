@@ -92,8 +92,8 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.5.3"
-LAST_MODIFICATION="15 September 2011"
+VERSION="0.5.4"
+LAST_MODIFICATION="11 June 2012"
 
 # IMPORTS --------------------------------------------------------------------
 
