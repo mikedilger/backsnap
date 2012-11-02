@@ -92,8 +92,8 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.5.3"
-LAST_MODIFICATION="15 September 2011"
+VERSION="0.5.4"
+LAST_MODIFICATION="11 June 2012"
 
 # IMPORTS --------------------------------------------------------------------
 
@@ -298,9 +298,9 @@ if not direction=='local':
   #   -c arcfour:         weak but fast encryption
   #   -o Compression=no:  rsync already compresses, ssh doesn't need to
   #   -x                  turns off X tunnelling (shouldn't be on anyhow)
-  myenv['RSYNC_SSH']="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
+  myenv['RSYNC_RSH']="/usr/bin/ionice -c 3 /usr/bin/ssh -c arcfour -o Compression=no -x"
 else:
-  myenv['RSYNC_SSH']=""
+  myenv['RSYNC_RSH']=""
 
 # Get the filter file into tempdir -------------------------------------------
 
