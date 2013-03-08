@@ -1,0 +1,11 @@
+Make use of btrfs subvolumes/snapshots:
+
+1) The backup destinations (LEVEL1, LEVEL2, etc) should be separate
+   btrfs subvolumes.  Then deleting them happens in a flash!
+2) Create the LEVEL1, LEVEL2 destinations by btrfs snapshotting the
+   most recent prior backup.  This happens in a flash.  Then drop
+   the --link-dest stuff as it is no longer needed.
+3) If the source is on btrfs, snapshot it first before taking the backup
+   and then drop that snapshot.  This ensures an image at a
+   single-point-in-time.   If it is lvm2, you can use lvm snapshotting
+   instead.
