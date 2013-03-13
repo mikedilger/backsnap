@@ -311,7 +311,7 @@ p = subprocess.Popen(ionice + destcp +
                      env=myenv,stderr=subprocess.PIPE)
 sts = os.waitpid(p.pid,0)[1]
 if (sts!=0):
-  print("Error: filter file out found at {0}/.backsnap/filter".format(dest))
+  print("Error: filter file not found at {0}/.backsnap/filter".format(dest))
   myexitcode()
 filterfile=tempdir+"/filter"
 
