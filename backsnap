@@ -92,8 +92,8 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.5.4"
-LAST_MODIFICATION="11 June 2012"
+VERSION="0.6"
+LAST_MODIFICATION="19 March 2013"
 
 # IMPORTS --------------------------------------------------------------------
 
@@ -193,6 +193,12 @@ parser.add_option("--depth",
 parser.add_option("--credits",
                   action="callback", callback=print_credits,
                   help="Print credits")
+parser.add_option("--btrfs",
+                  action="store_true",
+                  dest="btrfs",
+                  default=False,
+                  help="Use btrfs subvolumes and snapshots on destination "
+                  "[default: %default]")
 
 (options, args) = parser.parse_args()
 
@@ -391,15 +397,19 @@ if p.returncode not in [0,6,21,23,24,25]:   # Errors acceptible for proceeding
 
 # Delete the target directory -----------------------------------------------
 
-cmd = iftesting + destrun + ionice
-cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
-cmd.append("{0}/{1}".format(destpath,target))
-print("Deleting destination: {0}".format(cmd))
-p = subprocess.Popen(cmd, env=myenv)
-p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
-if p.returncode!=0:
-  print("Error: trouble deleting the target directory")
-  myexitcode()
+if os.path.exists("{0}/{1}".format(destpath,target)):
+  cmd = iftesting + destrun + ionice
+  if options.btrfs:
+    cmd.extend(['/sbin/btrfs','subvolume','delete'])
+  else:
+    cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
+    cmd.append("{0}/{1}".format(destpath,target))
+    print("Deleting destination: {0}".format(cmd))
+    p = subprocess.Popen(cmd, env=myenv)
+    p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+    if p.returncode!=0:
+      print("Error: trouble deleting the target directory")
+      myexitcode()
 
 # Determine link-targ --------------------------------------------------------
 
@@ -416,6 +426,17 @@ for tt in newestlist:
     linktarg="{0}/{1}".format(destpath,tt)
     break
 
+if options.btrfs:
+  cmd = iftesting + destrun + ionice
+  cmd.extend(['/sbin/btrfs','subvolume','snapshot'])
+  cmd.append(linktarg)
+  cmd.append("{0}/{1}".format(destpath,target))
+  p = subprocess.Popen(cmd, env=myenv)
+  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+  if p.returncode!=0:
+    print("Error: trouble snapshotting the previous backup")
+    myexitcode()
+
 # MAIN LOOP (per srcs) -------------------------------------------------------
 
 for s in srcs:
@@ -431,15 +452,16 @@ for s in srcs:
 
   print()
 
-  # If destdir, clear it -----------------------------------------------------
-  cmd = iftesting + destrun + ionice
-  cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
-  cmd.append("{0}/{1}{2}".format(destpath,target,spath))
-  p = subprocess.Popen(cmd, env=myenv)
-  p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
-  if p.returncode!=0:
-    print("Error: trouble deleting the target directory")
-    myexitcode()
+  if not options.btrfs:
+    # If destdir, clear it -----------------------------------------------------
+    cmd = iftesting + destrun + ionice
+    cmd.extend(['/bin/rm','-rf','--one-file-system','--preserve-root'])
+    cmd.append("{0}/{1}{2}".format(destpath,target,spath))
+    p = subprocess.Popen(cmd, env=myenv)
+    p.communicate()    # or: sts = os.waitpid(p.pid,0)[1]
+    if p.returncode!=0:
+      print("Error: trouble deleting the target directory")
+      myexitcode()
 
   # Make destdir -------------------------------------------------------------
   cmd = iftesting + destrun
@@ -472,7 +494,7 @@ for s in srcs:
               '--filter=._{0}'.format(filterfile),
               '--numeric-ids'])
   cmd.extend(rsync_perfopts)
-  if (len(linktarg)>0):
+  if (len(linktarg)>0) and not options.btrfs:
     cmd.append('--link-dest={0}{1}'.format(linktarg,sdir)) # spath wasn't workn
   cmd.append(s)
   cmd.append("{0}/{1}{2}".format(dest,target,sdir))
