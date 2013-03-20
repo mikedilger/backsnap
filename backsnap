@@ -92,8 +92,8 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.6"
-LAST_MODIFICATION="19 March 2013"
+VERSION="0.6.1"
+LAST_MODIFICATION="20 March 2013"
 
 # IMPORTS --------------------------------------------------------------------
 
@@ -493,6 +493,8 @@ for s in srcs:
   cmd.extend(['/usr/bin/rsync','--archive','--one-file-system','--sparse',
               '--filter=._{0}'.format(filterfile),
               '--numeric-ids'])
+  if options.btrfs:
+    cmd.extend(['--delete','--delete-excluded'])
   cmd.extend(rsync_perfopts)
   if (len(linktarg)>0) and not options.btrfs:
     cmd.append('--link-dest={0}{1}'.format(linktarg,sdir)) # spath wasn't workn
