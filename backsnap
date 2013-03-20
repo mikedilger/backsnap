@@ -92,7 +92,7 @@ CREDITS="""by Michael Dilger <mike@mikedilger.com>
 """
 
 AUTHOR="Michael Dilger"
-VERSION="0.6.1"
+VERSION="0.6.2"
 LAST_MODIFICATION="20 March 2013"
 
 # IMPORTS --------------------------------------------------------------------
@@ -426,7 +426,7 @@ for tt in newestlist:
     linktarg="{0}/{1}".format(destpath,tt)
     break
 
-if options.btrfs:
+if options.btrfs and os.path.exists(linktarg):
   cmd = iftesting + destrun + ionice
   cmd.extend(['/sbin/btrfs','subvolume','snapshot'])
   cmd.append(linktarg)
