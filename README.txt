@@ -1,3 +1,5 @@
+WARNING: This readme is old and needs review.
+
 Backsnap  (BACKup SNAPshots)
 ============================
 
@@ -22,26 +24,21 @@ LICENSE
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-
 FEATURES
 
 * Backups traverse the network to a backup server.
 * Snapshots are taken as often as you run the program, and rotated.
-* Up to EIGHT full snapshots are kept, in a kind of exponential backoff
-     (using the Towers of Hanoi strategy).  You always have the last, and
-     the oldest one ranges from 65-128 days old.
-* Even though (up to) 8 snapshots are kept, the storage required is much less
-     than 8-fold of the original media, because hard links are used for files
-     in common.
-* The snapshots can be NFS mounted read-only, so recovery is simply a
-     matter of rooting around in those directories and finding what you want.
+* You can backup to as many slots as you like. They are kept in a kind of
+  exponential backoff (using the Towers of Hanoi strategy).  You always
+  have the last, and the oldest one ranges from 65-128 days old.
+* Even though (up to) N snapshots are kept, the storage required is much less
+  than N-fold of the original media, because hard links are used for files
+  in common.
+* The snapshots can be NFS mounted read-only, so recovery is simply a matter
+  of rooting around in those directories and finding what you want.
 * Uses only standard unix commands
 * The backup can be either push or pull; one machine requires access to the
   other if backups are over the network.
-
-FUTURE IDEAS
-
-* squashfs compression... use this for a permanent offlining of backups.
 
 ------------------------------------------------------------------------------
 DESTINATION DIRECTORY
